@@ -1,5 +1,6 @@
 import { spawn, ChildProcess } from "child_process";
 import * as path from "path";
+import * as fs from "fs";
 
 // Define the Task structure
 interface AgentTask {
@@ -44,8 +45,6 @@ const TASKS: AgentTask[] = [
         },
         expectedAction: "REQUEST_APPROVAL"
     },
-    // Loop to test Rate Limit / Budget?
-    // Let's add a few more "searches"
     {
         name: "Follow-up Search 1",
         description: "Refining search",
@@ -85,57 +84,60 @@ class ResearchAgentDemo {
         console.log("══════════════════════════════════════════════════════════════════════\n");
     }
 
-    private startProxy() {
-        const proxyPath = path.resolve(__dirname, "../src/proxy/index.js");
-        const toolsPath = path.resolve(__dirname, "enterprise-tools.js");
-        const configPath = path.resolve(__dirname, "../../examples/enterprise-config.yml");
+    private async startProxy() {
+        const fs = require("fs");
+        // Paths must work both in local TS environment and compiled Docker (dist) environment
+        // Compiled paths (relative to dist/examples/research-agent.js)
+        // With rootDir: ".", dist structure mirrors source, so proxy is in dist/src/proxy/
+        const distProxyPath = path.resolve(__dirname, "../src/proxy/index.js");
+        const distToolsPath = path.resolve(__dirname, "enterprise-tools.js");
+        const distConfigPath = path.resolve(__dirname, "../../examples/enterprise-config.yml");
+
+        // Source paths (fallback for local development via ts-node)
+        const srcProxyPath = path.resolve(__dirname, "../src/proxy/index.ts");
+        const srcToolsPath = path.resolve(__dirname, "enterprise-tools.ts");
+        const srcConfigPath = path.resolve(__dirname, "../../examples/enterprise-config.yml");
+
+        const isDocker = fs.existsSync("/app");
+        const proxyPath = isDocker ? distProxyPath : (fs.existsSync(distProxyPath) ? distProxyPath : srcProxyPath);
+        const toolsPath = isDocker ? distToolsPath : (fs.existsSync(distToolsPath) ? distToolsPath : srcToolsPath);
+        const configPath = isDocker ? distConfigPath : (fs.existsSync(distConfigPath) ? distConfigPath : srcConfigPath);
 
         console.log(`[ResearchAgent] Config Path: ${configPath}`);
-        if (!require("fs").existsSync(configPath)) {
+        if (!fs.existsSync(configPath)) {
             console.error(`[ResearchAgent] CRITICAL: Config file not found at ${configPath}`);
+            process.exit(1);
         }
 
         // Spawn the proxy which wraps the tools server
         this.child = spawn("node", [proxyPath, "node", toolsPath], {
-            stdio: ["pipe", "pipe", "pipe"], // We need to capture stdout/stderr
-            env: { ...process.env, AGENT_BRAKE_CONFIG: configPath },
-            shell: true
+            stdio: ["pipe", "pipe", "pipe"],
+            env: {
+                ...process.env,
+                AGENT_BRAKE_CONFIG: configPath,
+                NODE_ENV: "production"
+            },
+            shell: process.platform === 'win32'
         });
 
         this.child.stdout?.on("data", (data) => {
-            const lines = data.toString().trim().split("\n");
+            const lines = data.toString().split("\n");
             for (const line of lines) {
                 if (!line.trim()) continue;
 
-                // Check for KILL signal
                 if (line.includes("KILL action triggered")) {
                     const resolve = this.pendingResolve;
-                    if (resolve) {
-                        // Resolves as BLOCK because KILL is the ultimate block
-                        resolve("BLOCK");
-                    }
+                    if (resolve) resolve("BLOCK");
                 }
 
                 try {
                     const parsed = JSON.parse(line);
-
-                    // console.log("DEBUG: ", line); // Uncommented for debugging
-
-                    // Check for JSON-RPC response (error or result)
-                    if (parsed.id) {
+                    if (parsed.id !== undefined) {
                         const resolve = this.pendingResolve;
                         if (parsed.error && resolve) {
                             const data = parsed.error.data;
-                            if (data?.action) {
-                                let action = data.action.toUpperCase();
-                                if (action === "REQUEST_APPROVAL") {
-                                    resolve("REQUEST_APPROVAL");
-                                } else {
-                                    resolve(action);
-                                }
-                            } else {
-                                resolve("BLOCK");
-                            }
+                            const action = (data?.action || "BLOCK").toUpperCase();
+                            resolve(action === "REQUEST_APPROVAL" ? "REQUEST_APPROVAL" : action);
                         } else if (parsed.result && resolve) {
                             resolve("ALLOW");
                         }
@@ -147,7 +149,8 @@ class ResearchAgentDemo {
         });
 
         this.child.stderr?.on("data", (data) => {
-            // console.error(`[Proxy Error]: ${data}`);
+            const msg = data.toString().trim();
+            if (msg) console.error(`[Proxy Error] ${msg}`);
         });
     }
 
@@ -161,52 +164,31 @@ class ResearchAgentDemo {
         console.log(`[${index}/${TASKS.length}] 🤖 ACTION: ${task.name}`);
         console.log(`    └─ Tool: ${task.tool}`);
 
-        // Construct JSON-RPC Request
         const msg = {
             jsonrpc: "2.0",
             id: index,
             method: `tools/call`,
-            params: {
-                name: task.tool,
-                arguments: task.args
-            }
+            params: { name: task.tool, arguments: task.args }
         };
 
         const responsePromise = new Promise<string>((resolve) => {
             this.pendingResolve = resolve;
         });
 
-        // Send to Proxy
         this.child?.stdin?.write(JSON.stringify(msg) + "\n");
 
-        // Wait for result or timeout
-        // "KILL" actions might not send a response before dying, handled by stdout listener
         const result = await Promise.race([
             responsePromise,
-            this.sleep(2000).then(() => "TIMEOUT")
+            this.sleep(5000).then(() => "TIMEOUT") // Increased timeout for container slow starts
         ]);
         this.pendingResolve = null;
 
-        // Verify expectation
-        // We treat TIMEOUT as BLOCK for KILL actions sometimes
-        let verdict = result;
-        if (result === "TIMEOUT" && (task.expectedAction === "BLOCK" || task.expectedAction === "KILL")) {
-            // If we expected a block/kill and timed out, it's likely the process died (Kill)
-            // or the proxy blocked it silently (shouldn't happen with correct config).
-            // But for this demo, let's mark it as potentially valid behavior for KILL.
-            // However, our proxy sends error responses, so TIMEOUT is usually bad unless KILL.
-            // We'll leave it as TIMEOUT to be honest, unless it matched KILL logic above.
-        }
-
-        // Map REQUEST_APPROVAL to APPROVAL_REQUIRED for display if needed, but we used consistent enum.
-
-        const isSuccess = verdict === task.expectedAction || (task.expectedAction === "BLOCK" && verdict === "KILL");
-
+        const isSuccess = result === task.expectedAction || (task.expectedAction === "BLOCK" && result === "KILL");
         const icon = isSuccess ? "✅" : "⚠️";
-        console.log(`    └─ Result: ${verdict} (Expected: ${task.expectedAction}) ${icon}`);
+        console.log(`    └─ Result: ${result} (Expected: ${task.expectedAction}) ${icon}`);
 
         if (!isSuccess) {
-            console.log(`       Wait, expected ${task.expectedAction} but got ${verdict}`);
+            console.log(`       Wait, expected ${task.expectedAction} but got ${result}`);
         }
     }
 
