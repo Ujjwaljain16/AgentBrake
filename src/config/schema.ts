@@ -25,7 +25,7 @@ export const PoliciesSchema = z.object({
     global: z.object({
         on_violation: ViolationActionSchema.default("block"),
         max_retries: z.number().default(3),
-    }),
+    }).optional().default({ on_violation: "block", max_retries: 3 }),
 
     limits: z.object({
         max_tool_calls: z.number().optional(),
@@ -46,14 +46,14 @@ export const PoliciesSchema = z.object({
             failure_threshold: z.number().default(5),
             reset_timeout_seconds: z.number().default(60)
         }).optional()
-    }),
+    }).optional().default({}),
 
     security: z.object({
         allowed_tools: z.array(z.string()).optional(),
         denied_tools: z.array(z.string()).optional(),
         require_approval: z.array(z.string()).optional(),
         granular_rules: z.array(GranularRuleSchema).optional()
-    })
+    }).optional().default({})
 });
 
 export type PoliciesConfig = z.infer<typeof PoliciesSchema>;
@@ -63,8 +63,12 @@ export const AgentBrakeConfigSchema = z.object({
     agent: z.object({
         name: z.string().default("unknown-agent"),
         trust_level: TrustLevelSchema.default("sandbox")
-    }),
-    policies: PoliciesSchema
+    }).optional().default({ name: "unknown-agent", trust_level: "sandbox" }),
+    policies: PoliciesSchema.optional().default({
+        global: { on_violation: "block", max_retries: 3 },
+        limits: {},
+        security: {}
+    })
 });
 
 export type AgentBrakeConfig = z.infer<typeof AgentBrakeConfigSchema>;
