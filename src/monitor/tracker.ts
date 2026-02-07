@@ -18,23 +18,21 @@ export class RuntimeMonitor {
         return { ...this.state };
     }
 
-    incrementToolCalls() {
+    incrementToolCalls(): void {
         this.state.toolCallsCount++;
-        // Very rough heuristic: $0.001 per tool call (logging/overhead)
         this.state.estimatedCost += 0.001;
     }
 
-    setBlocked(reason: string) {
+    setBlocked(reason: string): void {
         this.state.blocked = true;
         this.state.violationReason = reason;
     }
 
-    // New V2 Methods
-    updateTrust(level: TrustLevel) {
+    updateTrust(level: TrustLevel): void {
         this.state.trustLevel = level;
     }
 
-    logAction(action: string, policy: string) {
+    logAction(action: string, policy: string): void {
         this.state.history.push({
             timestamp: new Date().toISOString(),
             action,
@@ -42,8 +40,7 @@ export class RuntimeMonitor {
         });
     }
 
-    reset() {
-        // Keeps trust level? usually reset session
+    reset(): void {
         const trust = this.state.trustLevel;
         this.state = {
             toolCallsCount: 0,

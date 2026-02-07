@@ -7,8 +7,8 @@ import { GranularAccessPolicy } from "../policy/policies/GranularAccessPolicy.js
 import { RateLimitPolicy } from "../policy/policies/RateLimitPolicy.js";
 import { Logger } from "../monitor/logger.js";
 import { ConfigLoader } from "../config/loader.js";
+import { Policy } from "../policy/types.js";
 
-// Parse arguments
 const args = process.argv.slice(2);
 const command = args[0];
 const commandArgs = args.slice(1);
@@ -18,11 +18,8 @@ if (!command) {
     process.exit(1);
 }
 
-// Load Config
 const config = ConfigLoader.load();
-
-// Instantiate Policies based on Config
-const policies: any[] = [];
+const policies: Policy[] = [];
 
 if (config.policies.limits.max_tool_calls) {
     policies.push(new MaxToolCallsPolicy(config.policies.limits.max_tool_calls));
@@ -32,7 +29,6 @@ if (config.policies.limits.max_runtime_seconds) {
     policies.push(new MaxRuntimePolicy(config.policies.limits.max_runtime_seconds));
 }
 
-// V4: Rate Limiting with Exponential Backoff
 if (config.policies.limits.rate_limit) {
     policies.push(new RateLimitPolicy(
         config.policies.limits.rate_limit.calls_per_window,
@@ -44,12 +40,10 @@ if (config.policies.security.allowed_tools) {
     policies.push(new AllowedToolsPolicy(config.policies.security.allowed_tools));
 }
 
-// V3: Granular Access Policy (Semantic Firewall)
-if (config.policies.security.granular_rules && config.policies.security.granular_rules.length > 0) {
+if (config.policies.security.granular_rules?.length) {
     policies.push(new GranularAccessPolicy(config.policies.security.granular_rules));
 }
 
-// Log startup
 Logger.info("Starting AgentBrake", {
     version: config.version,
     agent: config.agent.name,
@@ -58,10 +52,5 @@ Logger.info("Starting AgentBrake", {
     target: `${command} ${commandArgs.join(" ")}`
 });
 
-const proxy = new BrakeProxy(
-    command,
-    commandArgs,
-    policies
-);
-
+const proxy = new BrakeProxy(command, commandArgs, policies);
 proxy.start();
