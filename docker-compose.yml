@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  agent-brake:
+    build: .
+    container_name: agent-brake
+    restart: unless-stopped
+    volumes:
+      - ./agent-brake.yml:/app/agent-brake.yml:ro
+      - ./logs:/app/logs
+    environment:
+      - NODE_ENV=production
+      - WEBHOOK_URL=${WEBHOOK_URL:-}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "console.log('healthy')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - agent-network
+
+  # Optional: Redis for distributed state (approvals, rate limiting)
+  redis:
+    image: redis:7-alpine
+    container_name: agent-brake-redis
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    networks:
+      - agent-network
+    profiles:
+      - distributed
+
+networks:
+  agent-network:
+    driver: bridge
+
+volumes:
+  redis-data:

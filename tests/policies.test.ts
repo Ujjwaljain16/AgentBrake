@@ -132,6 +132,8 @@ describe("GranularAccessPolicy", () => {
     });
 });
 
+import { BudgetPolicy } from "../src/policy/policies/BudgetPolicy";
+
 describe("CircuitBreakerPolicy", () => {
     it("should allow calls when circuit is closed", async () => {
         const policy = new CircuitBreakerPolicy(3, 60);
@@ -159,5 +161,47 @@ describe("CircuitBreakerPolicy", () => {
         const status = policy.getStatus("calculator");
         expect(status.failures).toBe(0);
         expect(status.isOpen).toBe(false);
+    });
+});
+
+describe("BudgetPolicy", () => {
+    it("should allow calls under budget", async () => {
+        const policy = new BudgetPolicy(1.00);
+        const result = await policy.validate(mockRequest("calculator"), mockState());
+        expect(result).toBeNull();
+    });
+
+    it("should warn at 80% budget", async () => {
+        const policy = new BudgetPolicy(0.10, [], 0.01);
+        for (let i = 0; i < 8; i++) {
+            await policy.validate(mockRequest("calculator"), mockState());
+        }
+        const result = await policy.validate(mockRequest("calculator"), mockState());
+        expect(result?.action).toBe("warn");
+    });
+
+    it("should block when budget exceeded", async () => {
+        const policy = new BudgetPolicy(0.05, [], 0.01);
+        for (let i = 0; i < 5; i++) {
+            await policy.validate(mockRequest("calculator"), mockState());
+        }
+        const result = await policy.validate(mockRequest("calculator"), mockState());
+        expect(result?.action).toBe("block");
+        expect(result?.reason).toContain("Budget exceeded");
+    });
+
+    it("should track spend correctly", async () => {
+        const policy = new BudgetPolicy(1.00, [], 0.01);
+        await policy.validate(mockRequest("calculator"), mockState());
+        await policy.validate(mockRequest("calculator"), mockState());
+        expect(policy.getSpend()).toBe(0.02);
+        expect(policy.getPercentUsed()).toBe(2);
+    });
+
+    it("should reset spend", async () => {
+        const policy = new BudgetPolicy(1.00, [], 0.01);
+        await policy.validate(mockRequest("calculator"), mockState());
+        policy.reset();
+        expect(policy.getSpend()).toBe(0);
     });
 });
