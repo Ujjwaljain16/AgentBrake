@@ -3,6 +3,7 @@ import { BrakeProxy } from "./interceptor.js";
 import { MaxToolCallsPolicy } from "../policy/policies/MaxToolCallsPolicy.js";
 import { AllowedToolsPolicy } from "../policy/policies/AllowedToolsPolicy.js";
 import { MaxRuntimePolicy } from "../policy/policies/MaxRuntimePolicy.js";
+import { GranularAccessPolicy } from "../policy/policies/GranularAccessPolicy.js";
 import { Logger } from "../monitor/logger.js";
 import { ConfigLoader } from "../config/loader.js";
 
@@ -16,7 +17,7 @@ if (!command) {
     process.exit(1);
 }
 
-// Load V2 Config
+// Load Config
 const config = ConfigLoader.load();
 
 // Instantiate Policies based on Config
@@ -34,8 +35,13 @@ if (config.policies.security.allowed_tools) {
     policies.push(new AllowedToolsPolicy(config.policies.security.allowed_tools));
 }
 
-// Log startup V2
-Logger.info("Starting AgentBrake V2", {
+// V3: Granular Access Policy (Semantic Firewall)
+if (config.policies.security.granular_rules && config.policies.security.granular_rules.length > 0) {
+    policies.push(new GranularAccessPolicy(config.policies.security.granular_rules));
+}
+
+// Log startup V3
+Logger.info("Starting AgentBrake V3", {
     agent: config.agent.name,
     trust: config.agent.trust_level,
     activePolicies: policies.map(p => p.name),
