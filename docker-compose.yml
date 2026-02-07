@@ -5,14 +5,19 @@ services:
     build: .
     container_name: agent-brake
     restart: unless-stopped
+    # Mount local enterprise-config.yml to override default
     volumes:
-      - ./agent-brake.yml:/app/agent-brake.yml:ro
+      - ./examples/enterprise-config.yml:/app/enterprise-config.yml:ro
       - ./logs:/app/logs
     environment:
       - NODE_ENV=production
       - WEBHOOK_URL=${WEBHOOK_URL:-}
       - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
       - LOG_LEVEL=${LOG_LEVEL:-info}
+    # Command to run the proxy. 
+    # To run a demo, override this command:
+    # docker compose run agent-brake node dist/examples/rogue-agent-attack.js
+    command: ["node", "dist/proxy/index.js"] 
     ports:
       - "3000:3000"
     healthcheck:
@@ -23,21 +28,6 @@ services:
     networks:
       - agent-network
 
-  # Optional: Redis for distributed state (approvals, rate limiting)
-  redis:
-    image: redis:7-alpine
-    container_name: agent-brake-redis
-    restart: unless-stopped
-    volumes:
-      - redis-data:/data
-    networks:
-      - agent-network
-    profiles:
-      - distributed
-
 networks:
   agent-network:
     driver: bridge
-
-volumes:
-  redis-data:

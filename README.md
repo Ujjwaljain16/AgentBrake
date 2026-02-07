@@ -1,270 +1,131 @@
-<p align="center">
-  <h1 align="center">🛡️ AgentBrake</h1>
-  <p align="center"><strong>The Control Plane for AI Agents</strong></p>
-  <p align="center">
-    <em>Run AI agents at full throttle — without losing control.</em>
-  </p>
-</p>
+# AgentBrake 🛡️
 
-<p align="center">
-  <a href="#-what-is-agentbrake">What</a> •
-  <a href="#-the-problem">Why</a> •
-  <a href="#-key-features">Features</a> •
-  <a href="#-how-it-works">How</a> •
-  <a href="#-quick-start">Quick Start</a> •
-  <a href="#-configuration">Config</a> •
-  <a href="#-roadmap">Roadmap</a>
-</p>
+**The Safety Control Plane for AI Agents.**
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Docker Image](https://img.shields.io/badge/docker-pull-blue)](https://hub.docker.com/r/ujjwaljain16/agentbrake)
+
+> **"Run AI agents at full throttle — without losing control."**
+
+AgentBrake is a transparent **Model Context Protocol (MCP)** proxy that enforces safety policies on AI tool calls in real-time. It sits between your agent (Archestra, LangChain, etc.) and your tools, blocking dangerous actions before they happen.
 
 ---
 
-> **"A transparent MCP proxy that enforces safety policies on AI tool calls in real-time."**
+## 🚀 Quick Demo: Stop a Rogue Agent
 
----
+See AgentBrake intercept a simulated "Rogue Agent" trying to steal secrets.
 
-## 🤖 What is AgentBrake?
+### Option 1: Docker (Recommended)
 
-**AgentBrake** is a **safety proxy** for AI agents using the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). 
-
-It sits between your agent orchestrator (like Archestra, LangChain, or any MCP client) and your tool servers, intercepting every tool call to enforce policies in **real-time**.
-
-Think of it as a **firewall for AI agents** — but smarter.
-
-```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Agent Runtime  │ ──▶ │   AgentBrake    │ ──▶ │   Tool Server   │
-│   (Archestra)   │     │  (Proxy Layer)  │     │   (MCP APIs)    │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-                              │
-                              ▼
-                    ┌─────────────────┐
-                    │  Policy Engine  │
-                    │  • MaxToolCalls │
-                    │  • AllowedTools │
-                    │  • MaxRuntime   │
-                    │  • Granular DLP │
-                    │  • CircuitBreaker│
-                    │  • Human-in-Loop │
-                    └─────────────────┘
-```
-
----
-
-## 🔥 The Problem
-
-AI agents are powerful. **Too powerful.**
-
-When you give an agent access to tools like `read_file`, `execute_code`, or `send_email`, you're trusting it to behave. But agents can:
-
-| Problem | Real-World Impact |
-|---------|-------------------|
-| 🔄 **Infinite Loops** | Agent calls the same tool forever, burning API credits |
-| 💸 **Cost Explosions** | Unchecked execution racks up $1000+ bills in minutes |
-| 🔓 **Tool Abuse** | Agent accesses sensitive tools it shouldn't touch |
-| 📂 **Data Exfiltration** | Agent reads `/etc/passwd` or database credentials |
-| ⏰ **Runaway Sessions** | Agent runs for hours with no supervision |
-
-**Current solutions?** Hope and pray. Or manually babysit every agent run.
-
-**AgentBrake?** Declarative policies that enforce guardrails automatically.
-
----
-
-## ✨ Key Features
-
-### 1. 🛑 Live Intervention (Not Just Logging)
-Most monitoring tools alert you *after* the damage is done. AgentBrake **blocks the request before it executes**.
-
-### 2. 📜 Policy-as-Code
-Define all your safety rules in a single `agent-brake.yml` file. No code changes. Version-controlled. Auditable.
-
-```yaml
-version: "3.0"
-agent:
-  name: "data-analyst"
-  trust_level: "sandbox"
-
-policies:
-  limits:
-    max_tool_calls: 50
-    max_runtime_seconds: 300
-  
-  security:
-    allowed_tools:
-      - "read_file"
-      - "calculator"
-```
-
-### 3. 🧬 Semantic Firewall (Unique to AgentBrake)
-Go beyond "allow this tool" to **"allow this tool with these arguments"**.
-
-```yaml
-granular_rules:
-  - tool: "read_file"
-    allow_if:
-      arguments:
-        path: "^/tmp/.*"        # ✅ Only allow /tmp paths
-  
-  - tool: "read_file"
-    deny_if:
-      arguments:
-        path: ".*(passwd|secret|\.env).*"  # 🛑 Block sensitive files
-    action: "kill"
-```
-
-**This is Data Loss Prevention (DLP) for AI agents.**
-
-### 4. ⚡ Action Engine
-Not just "allow" or "deny". AgentBrake supports **graded responses**:
-
-| Action | Behavior |
-|--------|----------|
-| `warn` | Log the violation, but let the request through |
-| `block` | Reject this specific request |
-| `kill` | Terminate the entire agent session |
-| `sandbox` | Downgrade trust level (coming soon) |
-
-### 5. 📊 Structured Observability
-Every intervention emits a JSON log, ready for ELK, Datadog, or any monitoring stack:
-
-```json
-{
-  "timestamp": "2026-02-07T12:00:00Z",
-  "event": "POLICY_VIOLATION",
-  "policy": "GranularAccessPolicy",
-  "action": "BLOCK",
-  "tool": "read_file",
-  "reason": "Arguments match DENY pattern: /etc/passwd"
-}
-```
-
-### 6. 🔐 Trust Levels
-Assign agents a trust tier that determines their capabilities:
-
-| Level | Use Case |
-|-------|----------|
-| `sandbox` | Untested agents, strict limits |
-| `limited` | Dev/staging agents |
-| `trusted` | Production-vetted agents |
-| `privileged` | Admin-level agents (use sparingly) |
-
----
-
-## ⚙️ How It Works
-
-AgentBrake is a **transparent MCP proxy**. It intercepts JSON-RPC messages between your agent and tools.
-
-```
-1. Agent sends: tools/call { name: "read_file", arguments: { path: "/etc/passwd" } }
-2. AgentBrake intercepts ─────────────────────────────────────────────────────┐
-3. Policy Engine evaluates:                                                    │
-   - MaxToolCallsPolicy: ✅ Under limit                                       │
-   - AllowedToolsPolicy: ✅ "read_file" is allowed                            │
-   - GranularAccessPolicy: ❌ Path matches deny pattern!                      │
-4. Action: BLOCK ◀───────────────────────────────────────────────────────────┘
-5. Agent receives: error { code: -32000, message: "[AgentBrake] BLOCK: ..." }
-```
-
-The tool server **never sees the dangerous request**. The agent is stopped at the gate.
-
----
-
-## 🚀 Quick Start
-
-### Installation
 ```bash
-# Clone the repository
-git clone https://github.com/Ujjwaljain16/AgentBrake.git
-cd AgentBrake
+# 1. Start the proxy
+docker compose up -d
 
-# Install dependencies
+# 2. Run the Rogue Agent Attack simulation
+docker compose run agent-brake node dist/examples/rogue-agent-attack.js
+```
+
+### Option 2: Local (Node.js)
+
+```bash
 npm install
-
-# Build
 npm run build
+npm run demo:rogue
 ```
 
-### Run with Your Tool Server
-```bash
-# Wrap your existing MCP tool server
-node dist/proxy/index.js node my-tools-server.js
-```
-
-### Run the Demo (See AgentBrake in Action)
-```bash
-# V3 Demo: Watch a rogue agent get blocked by the Semantic Firewall
-node dist/demo/rogue-run-v3.js
-```
+**What you'll see:**
+- ✅ **Allow:** Safe tools (calculator) pass through.
+- 🛡️ **Block:** DLP rules stop access to `/app/.env`.
+- ⏳ **HITL:** Critical actions trigger Human-in-the-Loop approval.
 
 ---
 
-## 📝 Configuration
+## ✨ Features
 
-Create an `agent-brake.yml` in your project root:
+- **🛡️ Semantic Firewall:** Block tools based on arguments (regex), not just names.
+  - *Example:* Allow `read_file` only for `/tmp/*`. Block `*.env`.
+- **💰 Budget Enforcement:** Limit spending per session (Mock currency or token counts).
+- **🔌 Circuit Breaker:** Auto-cut connection if tools fail repeatedly (e.g., 5 errors in 60s).
+- **👮 Human-in-the-Loop:** Pause execution for approval via Slack/Webhook for sensitive actions.
+- **📜 Policy-as-Code:** Configure everything via a single YAML file (`enterprise-config.yml`).
+- **📊 JSON Logging:** Structured logs for every decision (`ALLOW`, `BLOCK`, `KILL`).
+
+---
+
+## ⚙️ Configuration
+
+Create an `enterprise-config.yml` (or mount it in Docker):
 
 ```yaml
 version: "3.0"
-
 agent:
-  name: "my-agent"
+  name: "production-agent"
   trust_level: "sandbox"
 
 policies:
   global:
     on_violation: "block"
-  
+
   limits:
-    max_tool_calls: 100
-    max_runtime_seconds: 600
-  
+    budget:
+      max_cost: 50.0
+      warn_threshold: 0.8
+    circuit_breaker:
+      failure_threshold: 5
+      reset_timeout_seconds: 60
+
   security:
     allowed_tools:
-      - "calculator"
       - "read_file"
-      - "write_file"
+      - "search_web"
     
-    # V3: Semantic Firewall
+    # Granular DLP Rules
     granular_rules:
       - tool: "read_file"
         deny_if:
           arguments:
-            path: ".*(passwd|shadow|\.env|secret).*"
+            path: ".*(password|secret|\\.env).*"
         action: "kill"
-      
-      - tool: "write_file"
-        allow_if:
-          arguments:
-            path: "^/tmp/.*"
 ```
 
 ---
 
-## 🎯 What Problems Does AgentBrake Solve?
+## 📦 Installation
 
-| Use Case | Without AgentBrake | With AgentBrake |
-|----------|-------------------|-----------------|
-| **Cost Control** | Agent burns $500 in API calls | Hard limit at N tool calls |
-| **Security** | Agent reads secrets.env | DLP blocks sensitive patterns |
-| **Compliance** | No audit trail | JSON logs for every action |
-| **Reliability** | Agent loops forever | Auto-kill after timeout |
-| **Governance** | Trust everything blindly | Trust levels + policies |
+### Docker
+```yaml
+services:
+  agent-brake:
+    image: ujjwaljain16/agentbrake:latest
+    volumes:
+      - ./my-config.yml:/app/enterprise-config.yml:ro
+    ports:
+      - "3000:3000"
+```
 
----
-
-## 🏆 Why Use AgentBrake?
-
-| Other Tools | AgentBrake |
-|-------------|------------|
-| Log after the fact | **Block before execution** |
-| Tool-level control | **Argument-level control (DLP)** |
-| Hardcoded policies | **Policy-as-Code (YAML)** |
-| Binary allow/deny | **Graded actions (warn/block/kill)** |
-| One-size-fits-all | **Trust levels per agent** |
-
-**AgentBrake is the only MCP proxy that does Data Loss Prevention.**
+### NPM
+```bash
+npm install
+npm run build
+# Wrap your MCP server
+node dist/proxy/index.js node path/to/your/server.js
+```
 
 ---
 
-<p align="center">
-  <em>Because agents need brakes too.</em>
-</p>
+## 🛣️ Roadmap
+
+- [x] **V1:** Basic Allow/Block Policies
+- [x] **V2:** Regex DLP & Logging
+- [x] **V3:** Resilience (Circuit Breaker, Budget, HITL)
+- [ ] **V4:** Sandbox isolation & Multi-agent orchestration support
+
+---
+
+## 🤝 Contributing
+
+Pull requests are welcome! Please run `npm test` before submitting.
+
+## 📄 License
+
+MIT © Ujjwal Jain

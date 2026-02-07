@@ -1,21 +1,27 @@
-FROM node:20-alpine
+# Build stage
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
 
+# Final stage
+FROM node:20-alpine
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
-
-# Install dependencies
+# Copy production dependencies and built files
+COPY --from=builder /app/package*.json ./
 RUN npm ci --only=production
 
-# Copy built files
-COPY dist/ ./dist/
-COPY agent-brake.yml ./
+COPY --from=builder /app/dist ./dist
+# Copy default config for easy start
+COPY --from=builder /app/examples/enterprise-config.yml ./enterprise-config.yml
 
 # Create volume mount point for config
 VOLUME ["/app/config"]
 
-# Default command
+# Default to running the proxy
 CMD ["node", "dist/proxy/index.js"]
 
 # Health check
