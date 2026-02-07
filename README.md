@@ -18,11 +18,8 @@ See AgentBrake intercept a simulated "Rogue Agent" trying to steal secrets.
 ### Option 1: Docker (Recommended)
 
 ```bash
-# 1. Start the proxy
-docker compose up -d
-
-# 2. Run the Rogue Agent Attack simulation
-docker compose run agent-brake node dist/examples/rogue-agent-attack.js
+# Start the Research Agent demo (Blocks attacks + HITL automatically)
+docker compose up --build
 ```
 
 ### Option 2: Local (Node.js)
@@ -49,6 +46,51 @@ npm run demo:rogue
 - **👮 Human-in-the-Loop:** Pause execution for approval via Slack/Webhook for sensitive actions.
 - **📜 Policy-as-Code:** Configure everything via a single YAML file (`enterprise-config.yml`).
 - **📊 JSON Logging:** Structured logs for every decision (`ALLOW`, `BLOCK`, `KILL`).
+
+---
+
+## 🏗️ How It Works
+
+AgentBrake operates as a **transparent proxy** between your AI Agent (the client) and its Tools (the server).
+
+1.  **Intercept:** The agent sends a JSON-RPC request (e.g., `call_tool: search_web`) to AgentBrake.
+2.  **Evaluate:** AgentBrake pauses the request and runs it through the **Policy Engine**, checking:
+    -   **Identity:** Is this agent allowed to use this tool?
+    -   **Content:** Do the arguments match DLP blocklists (e.g., regex for `.env`)?
+    -   **Context:** Has the budget been exceeded? Is the tool failing repeatedly?
+    -   **Approval:** Does this specific action require human verification?
+3.  **Enforce:**
+    -   ✅ **ALLOW:** Request is forwarded to the actual tool. Result is returned to the agent.
+    -   🛡️ **BLOCK:** Request is rejected. The agent receives a standard error (e.g., "Access Denied").
+    -   🛑 **KILL:** The entire session is terminated immediately (for high-risk violations).
+    -   ⏳ **HITL:** The system waits for an external signal (e.g., webhook/Slack) before proceeding.
+
+### Architecture Diagram
+
+```mermaid
+sequenceDiagram
+    participant Agent as 🤖 AI Agent
+    participant Brake as 🛡️ AgentBrake
+    participant Admin as 👩‍💻 Human Admin
+    participant Tool as 🏢 Real Tool
+
+    Agent->>Brake: Call Tool (read_file)
+    Brake->>Brake: Check Policies (DLP, Budget)
+    
+    alt Policy Violation
+        Brake--xAgent: 🚫 Blocked / Access Denied
+    else Sensitive Action
+        Brake->>Admin: 📩 Request Approval
+        Admin-->>Brake: ✅ Approve
+        Brake->>Tool: Forward Request
+        Tool-->>Brake: Result
+        Brake-->>Agent: Result
+    else Safe Action
+        Brake->>Tool: Forward Request
+        Tool-->>Brake: Result
+        Brake-->>Agent: Result
+    end
+```
 
 ---
 
@@ -92,13 +134,17 @@ policies:
 
 ## 📦 Installation
 
-### Docker
+### Docker (Generic)
 ```yaml
 services:
   agent-brake:
     image: ujjwaljain16/agentbrake:latest
     volumes:
-      - ./my-config.yml:/app/enterprise-config.yml:ro
+      # Mount your config to /app/agent-brake.yml (default lookup path)
+      - ./my-config.yml:/app/agent-brake.yml:ro
+    environment:
+      # Or specify a custom path
+      - AGENT_BRAKE_CONFIG=/app/custom-config.yml
     ports:
       - "3000:3000"
 ```
@@ -108,7 +154,7 @@ services:
 npm install
 npm run build
 # Wrap your MCP server
-node dist/proxy/index.js node path/to/your/server.js
+AGENT_BRAKE_CONFIG=./my-config.yml node dist/proxy/index.js node path/to/your/server.js
 ```
 
 ---
@@ -117,7 +163,7 @@ node dist/proxy/index.js node path/to/your/server.js
 
 - [x] **V1:** Basic Allow/Block Policies
 - [x] **V2:** Regex DLP & Logging
-- [x] **V3:** Resilience (Circuit Breaker, Budget, HITL)
+- [x] **V3:** Resilience (Circuit Breaker, Budget, HITL) & Docker
 - [ ] **V4:** Sandbox isolation & Multi-agent orchestration support
 
 ---
