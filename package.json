@@ -9,7 +9,9 @@
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "npm run build",
-    "test": "jest"
+    "test": "jest",
+    "demo:rogue": "npm run build && node dist/examples/rogue-agent-attack.js",
+    "demo:research": "npm run build && node dist/examples/research-agent.js"
   },
   "keywords": [
     "mcp",

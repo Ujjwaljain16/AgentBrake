@@ -5,6 +5,9 @@ import { AllowedToolsPolicy } from "../policy/policies/AllowedToolsPolicy.js";
 import { MaxRuntimePolicy } from "../policy/policies/MaxRuntimePolicy.js";
 import { GranularAccessPolicy } from "../policy/policies/GranularAccessPolicy.js";
 import { RateLimitPolicy } from "../policy/policies/RateLimitPolicy.js";
+import { ApprovalPolicy } from "../policy/policies/ApprovalPolicy.js";
+import { CircuitBreakerPolicy } from "../policy/policies/CircuitBreakerPolicy.js";
+import { BudgetPolicy } from "../policy/policies/BudgetPolicy.js";
 import { Logger } from "../monitor/logger.js";
 import { ConfigLoader } from "../config/loader.js";
 import { Policy } from "../policy/types.js";
@@ -42,6 +45,23 @@ if (config.policies.security.allowed_tools) {
 
 if (config.policies.security.granular_rules?.length) {
     policies.push(new GranularAccessPolicy(config.policies.security.granular_rules));
+}
+
+if (config.policies.security.require_approval) {
+    policies.push(new ApprovalPolicy(config.policies.security.require_approval));
+}
+
+if (config.policies.limits.circuit_breaker) {
+    policies.push(new CircuitBreakerPolicy(
+        config.policies.limits.circuit_breaker.failure_threshold,
+        config.policies.limits.circuit_breaker.reset_timeout_seconds
+    ));
+}
+
+if (config.policies.limits.budget) {
+    policies.push(new BudgetPolicy(
+        config.policies.limits.budget.max_cost
+    ));
 }
 
 Logger.info("Starting AgentBrake", {

@@ -9,10 +9,11 @@ export class ConfigLoader {
         const possiblePaths = configPath
             ? [configPath]
             : [
+                process.env.AGENT_BRAKE_CONFIG || "",
                 path.join(process.cwd(), "agent-brake.yml"),
                 path.join(process.cwd(), "agent-brake.yaml"),
                 path.join(process.cwd(), "agent-brake.json")
-            ];
+            ].filter(Boolean);
 
         for (const filePath of possiblePaths) {
             if (fs.existsSync(filePath)) {

@@ -30,16 +30,28 @@ export const PoliciesSchema = z.object({
     limits: z.object({
         max_tool_calls: z.number().optional(),
         max_runtime_seconds: z.number().optional(),
-        max_cost_usd: z.number().optional(),
+
         rate_limit: z.object({
             calls_per_window: z.number(),
             window_seconds: z.number().default(60)
+        }).optional(),
+
+        budget: z.object({
+            max_cost: z.number(),
+            currency: z.string().default("USD"),
+            warn_threshold: z.number().default(0.8)
+        }).optional(),
+
+        circuit_breaker: z.object({
+            failure_threshold: z.number().default(5),
+            reset_timeout_seconds: z.number().default(60)
         }).optional()
     }),
 
     security: z.object({
         allowed_tools: z.array(z.string()).optional(),
         denied_tools: z.array(z.string()).optional(),
+        require_approval: z.array(z.string()).optional(),
         granular_rules: z.array(GranularRuleSchema).optional()
     })
 });
