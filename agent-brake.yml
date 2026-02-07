@@ -1,0 +1,29 @@
+version: "3.0"
+agent:
+  name: "rogue-demo-agent"
+  trust_level: "sandbox"
+
+policies:
+  global:
+    on_violation: "block"
+  
+  limits:
+    max_tool_calls: 10
+    max_runtime_seconds: 60
+  
+  security:
+    allowed_tools: 
+      - "calculator"
+      - "read_file"
+    
+    # V3: Semantic Firewall - Granular Argument Rules
+    granular_rules:
+      - tool: "read_file"
+        allow_if:
+          arguments:
+            path: "^/tmp/.*"  # Only allow reading from /tmp/
+      - tool: "read_file"
+        deny_if:
+          arguments:
+            path: ".*(passwd|shadow|secret).*"  # Block sensitive files
+        action: "kill"
