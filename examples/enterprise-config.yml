@@ -1,0 +1,84 @@
+version: "3.0"
+
+agent:
+  name: "enterprise-agent"
+  trust_level: "sandbox"
+
+policies:
+  global:
+    on_violation: "block"
+  
+  limits:
+    max_tool_calls: 50
+    max_runtime_seconds: 300
+    rate_limit:
+      calls_per_window: 30
+      window_seconds: 60
+    
+    budget:
+      max_cost: 10.0
+      warn_threshold: 0.8
+    
+    circuit_breaker:
+      failure_threshold: 3
+      reset_timeout_seconds: 30
+  
+  security:
+    # Safe tools that don't need approval
+    allowed_tools: 
+      - "search_web"
+      - "summarize_text"
+      - "read_file"
+      - "send_email"
+      - "execute_shell"
+      - "write_file"
+      - "query_database"
+    
+    # Tools requiring human approval before execution
+    require_approval:
+      - "send_email"
+      - "execute_shell"
+      - "query_database"
+      - "write_file"
+    
+    granular_rules:
+      # Block reading secrets and credentials
+      - tool: "read_file"
+        deny_if:
+          arguments:
+            path: ".*(credentials|\\.env|\\.aws|\\.ssh|id_rsa|passwd|shadow|secrets?).*"
+        action: "kill"
+      
+      # Allow reading safe directories
+      - tool: "read_file"
+        allow_if:
+          arguments:
+            path: "^(/tmp/|/app/data/|/var/log/).*"
+      
+      # Block writing to system directories
+      - tool: "write_file"
+        deny_if:
+          arguments:
+            path: "^/(etc|bin|usr|var|root)/.*"
+        action: "kill"
+      
+      # Block dangerous shell commands
+      - tool: "execute_shell"
+        deny_if:
+          arguments:
+            command: ".*(rm -rf|mkfs|dd if=|curl.*\\|.*sh|wget.*\\|.*bash|nc -e|/dev/tcp).*"
+        action: "kill"
+      
+      # Block destructive SQL
+      - tool: "query_database"
+        deny_if:
+          arguments:
+            query: ".*(DROP|DELETE|TRUNCATE|ALTER|UPDATE).*"
+        action: "block"
+      
+      # Block emails to external domains
+      - tool: "send_email"
+        deny_if:
+          arguments:
+            to: ".*@(gmail|yahoo|hotmail|evil|external)\\.(com|net|org).*"
+        action: "block"
