@@ -249,31 +249,6 @@ policies:
 
 ---
 
-## 🛤️ Roadmap
-
-### ✅ V1 (Complete)
-- MCP Proxy with stdio piping
-- MaxToolCalls, AllowedTools, MaxRuntime policies
-- Structured JSON logging
-
-### ✅ V2 (Complete)
-- Policy-as-Code (YAML configuration)
-- Zod-validated schema
-- Trust Levels
-- Action Engine (warn/block/kill)
-
-### ✅ V3 (Complete)
-- **Semantic Firewall**: Regex-based argument filtering
-- Granular Access Policy for DLP
-
-### 🔜 V4 (Planned)
-- **Rate Limiting**: Throttle with exponential backoff instead of hard block
-- **Webhook Alerts**: Real-time Slack/Discord notifications
-- **Interactive Sudo Mode**: Human-in-the-loop approval for blocked actions
-- **Observation Mode**: Auto-generate policies from "gold standard" runs
-
----
-
 ## 🏆 Why Use AgentBrake?
 
 | Other Tools | AgentBrake |
@@ -288,19 +263,6 @@ policies:
 
 ---
 
-## 📄 License
-
-MIT
-
----
-
-## 🤝 Contributing
-
-PRs welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
----
-
 <p align="center">
-  <strong>Built for the Archestra Hackathon 2026</strong><br>
   <em>Because agents need brakes too.</em>
 </p>

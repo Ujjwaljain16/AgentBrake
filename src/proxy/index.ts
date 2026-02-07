@@ -4,6 +4,7 @@ import { MaxToolCallsPolicy } from "../policy/policies/MaxToolCallsPolicy.js";
 import { AllowedToolsPolicy } from "../policy/policies/AllowedToolsPolicy.js";
 import { MaxRuntimePolicy } from "../policy/policies/MaxRuntimePolicy.js";
 import { GranularAccessPolicy } from "../policy/policies/GranularAccessPolicy.js";
+import { RateLimitPolicy } from "../policy/policies/RateLimitPolicy.js";
 import { Logger } from "../monitor/logger.js";
 import { ConfigLoader } from "../config/loader.js";
 
@@ -31,6 +32,14 @@ if (config.policies.limits.max_runtime_seconds) {
     policies.push(new MaxRuntimePolicy(config.policies.limits.max_runtime_seconds));
 }
 
+// V4: Rate Limiting with Exponential Backoff
+if (config.policies.limits.rate_limit) {
+    policies.push(new RateLimitPolicy(
+        config.policies.limits.rate_limit.calls_per_window,
+        config.policies.limits.rate_limit.window_seconds
+    ));
+}
+
 if (config.policies.security.allowed_tools) {
     policies.push(new AllowedToolsPolicy(config.policies.security.allowed_tools));
 }
@@ -40,8 +49,9 @@ if (config.policies.security.granular_rules && config.policies.security.granular
     policies.push(new GranularAccessPolicy(config.policies.security.granular_rules));
 }
 
-// Log startup V3
-Logger.info("Starting AgentBrake V3", {
+// Log startup
+Logger.info("Starting AgentBrake", {
+    version: config.version,
     agent: config.agent.name,
     trust: config.agent.trust_level,
     activePolicies: policies.map(p => p.name),

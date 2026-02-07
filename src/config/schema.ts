@@ -33,7 +33,12 @@ export const PoliciesSchema = z.object({
     limits: z.object({
         max_tool_calls: z.number().optional(),
         max_runtime_seconds: z.number().optional(),
-        max_cost_usd: z.number().optional()
+        max_cost_usd: z.number().optional(),
+        // V4: Rate Limiting
+        rate_limit: z.object({
+            calls_per_window: z.number(),
+            window_seconds: z.number().default(60)
+        }).optional()
     }),
 
     security: z.object({
