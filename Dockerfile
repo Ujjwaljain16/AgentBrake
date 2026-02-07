@@ -15,8 +15,8 @@ COPY --from=builder /app/package*.json ./
 RUN npm ci --only=production
 
 COPY --from=builder /app/dist ./dist
-# Copy default config for easy start
-COPY --from=builder /app/examples/enterprise-config.yml ./enterprise-config.yml
+# Copy examples (including config and tools) for demos
+COPY --from=builder /app/examples ./examples
 
 # Create volume mount point for config
 VOLUME ["/app/config"]
