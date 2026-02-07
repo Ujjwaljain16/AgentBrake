@@ -104,6 +104,16 @@ export class BrakeProxy {
                 case "sandbox":
                     this.monitor.updateTrust("sandbox");
                     break;
+
+                case "request_approval":
+                    this.sendApprovalRequest(message.id, result);
+                    Logger.logEvent("APPROVAL_REQUIRED", {
+                        policy: result.policyName,
+                        tool: message.params?.name,
+                        reason: result.reason
+                    });
+                    this.monitor.logAction("APPROVAL_REQUIRED", result.policyName);
+                    return true;
             }
         }
 
@@ -124,5 +134,22 @@ export class BrakeProxy {
             }
         };
         process.stdout.write(JSON.stringify(errorResponse) + "\n");
+    }
+
+    private sendApprovalRequest(id: number | string, result: any): void {
+        const approvalResponse = {
+            jsonrpc: "2.0",
+            id,
+            error: {
+                code: -32001,
+                message: `[AgentBrake] APPROVAL_REQUIRED: ${result.reason}`,
+                data: {
+                    policy: result.policyName,
+                    action: "request_approval",
+                    status: "pending"
+                }
+            }
+        };
+        process.stdout.write(JSON.stringify(approvalResponse) + "\n");
     }
 }

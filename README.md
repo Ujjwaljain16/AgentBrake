@@ -18,13 +18,13 @@
 
 ---
 
-> **"AgentBrake applies Kubernetes-style guardrails—quotas, policies, and kill-switches—to MCP-based AI agents."**
+> **"A transparent MCP proxy that enforces safety policies on AI tool calls in real-time."**
 
 ---
 
 ## 🤖 What is AgentBrake?
 
-**AgentBrake** is an infrastructure-grade **safety proxy** for AI agents using the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). 
+**AgentBrake** is a **safety proxy** for AI agents using the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). 
 
 It sits between your agent orchestrator (like Archestra, LangChain, or any MCP client) and your tool servers, intercepting every tool call to enforce policies in **real-time**.
 
@@ -43,6 +43,8 @@ Think of it as a **firewall for AI agents** — but smarter.
                     │  • AllowedTools │
                     │  • MaxRuntime   │
                     │  • Granular DLP │
+                    │  • CircuitBreaker│
+                    │  • Human-in-Loop │
                     └─────────────────┘
 ```
 

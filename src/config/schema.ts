@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const TrustLevelSchema = z.enum(["sandbox", "limited", "trusted", "privileged"]);
-export const ViolationActionSchema = z.enum(["warn", "block", "kill", "sandbox"]);
+export const ViolationActionSchema = z.enum(["warn", "block", "kill", "sandbox", "request_approval"]);
 
 export type TrustLevel = z.infer<typeof TrustLevelSchema>;
 export type ViolationAction = z.infer<typeof ViolationActionSchema>;
