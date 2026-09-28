@@ -2,3 +2,9 @@ node_modules/
 dist/
 *.log
 .env
+coverage/
+*.tgz
+.DS_Store
+logs/
+.env.*
+!.env.example

@@ -2,25 +2,16 @@ services:
   agent-brake:
     build: .
     container_name: agent-brake
-    restart: unless-stopped
+    # The demo runs to completion and exits; do not restart it in a loop.
+    restart: "no"
     # Mount local enterprise-config.yml to override default
     volumes:
       - ./examples/enterprise-config.yml:/app/examples/enterprise-config.yml:ro
-      - ./logs:/app/logs
     environment:
       - NODE_ENV=production
-      - WEBHOOK_URL=${WEBHOOK_URL:-}
-      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    # By default, run the Research Agent demo which spawns the proxy internally
-    command: ["node", "dist/examples/research-agent.js"] 
-    ports:
-      - "3000:3000"
-    healthcheck:
-      test: ["CMD", "node", "-e", "console.log('healthy')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    # By default, run the Research Agent demo which spawns the proxy internally.
+    # The proxy speaks MCP over stdio and listens on no network port.
+    command: ["node", "dist/examples/research-agent.js"]
     networks:
       - agent-network
 

@@ -100,8 +100,8 @@ class DemoRunner {
     }
 
     private async startProxy(): Promise<void> {
-        const proxyPath = path.resolve(__dirname, "../../dist/proxy/index.js");
-        const toolsPath = path.resolve(__dirname, "../../dist/demo/tools-server.js");
+        const proxyPath = path.resolve(__dirname, "../proxy/index.js");
+        const toolsPath = path.resolve(__dirname, "tools-server.js");
 
         this.child = spawn("node", [proxyPath, "node", toolsPath], {
             stdio: ["pipe", "pipe", "inherit"],

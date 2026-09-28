@@ -9,5 +9,12 @@ module.exports = {
   coverageDirectory: 'coverage',
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1'
+  },
+  transform: {
+    '^.+\\.ts$': ['ts-jest', {
+      diagnostics: {
+        ignoreCodes: [151002]
+      }
+    }]
   }
 };

@@ -21,4 +21,10 @@ export type PolicyViolation = PolicyResult;
 export interface Policy {
     name: string;
     validate(request: CallToolRequest, state: AgentRuntimeState): Promise<PolicyResult | null>;
+
+    /**
+     * Optional hook: called by the proxy with the real outcome of a forwarded tool call
+     * (success = JSON-RPC result without isError; failure = JSON-RPC error or isError: true).
+     */
+    observeResult?(toolName: string, success: boolean): void;
 }

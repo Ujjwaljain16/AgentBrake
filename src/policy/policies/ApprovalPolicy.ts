@@ -2,11 +2,17 @@ import { CallToolRequest } from "@modelcontextprotocol/sdk/types.js";
 import { AgentRuntimeState, Policy, PolicyResult } from "../types.js";
 
 /**
- * Human-in-the-Loop Approval Policy.
- * Requires manual approval for specified high-risk tools.
+ * Human-in-the-Loop Approval Policy (EXPERIMENTAL / incomplete).
+ *
+ * Calls to the listed tools are never forwarded by this policy on their own: the first
+ * attempt yields "request_approval" and repeats are blocked while pending. approve() and
+ * deny() exist for library use, but the proxy exposes NO channel that calls them, so in the
+ * CLI proxy these tools are effectively always refused. The WebhookNotifier is not wired in.
  */
 export class ApprovalPolicy implements Policy {
     name = "ApprovalPolicy";
+
+    private static readonly MAX_PENDING = 1000;
 
     private toolsRequiringApproval: Set<string>;
     private pendingApprovals: Map<string, { requestId: string; timestamp: number }> = new Map();
@@ -40,7 +46,11 @@ export class ApprovalPolicy implements Policy {
             };
         }
 
-        // Request approval
+        // Request approval (bounded so a misbehaving agent cannot grow memory without limit)
+        if (this.pendingApprovals.size >= ApprovalPolicy.MAX_PENDING) {
+            const oldest = this.pendingApprovals.keys().next().value;
+            if (oldest !== undefined) this.pendingApprovals.delete(oldest);
+        }
         this.pendingApprovals.set(requestKey, {
             requestId: requestKey,
             timestamp: Date.now()
@@ -49,7 +59,7 @@ export class ApprovalPolicy implements Policy {
         return {
             policyName: this.name,
             action: "request_approval",
-            reason: `Tool '${toolName}' requires human approval. Approve or deny via CLI.`
+            reason: `Tool '${toolName}' requires human approval. No approval channel is implemented in the proxy; the call was not forwarded.`
         };
     }
 

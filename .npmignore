@@ -1,0 +1,23 @@
+# Source files (dist/ is what gets published)
+src/
+tests/
+examples/
+logs/
+
+# Config & tooling
+tsconfig.json
+jest.config.js
+docker-compose.yml
+Dockerfile
+.env*
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Misc
+*.log
+coverage/
+node_modules/
+.git/

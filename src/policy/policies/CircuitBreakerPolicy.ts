@@ -40,6 +40,14 @@ export class CircuitBreakerPolicy implements Policy {
         return null;
     }
 
+    observeResult(toolName: string, success: boolean): void {
+        if (success) {
+            this.recordSuccess(toolName);
+        } else {
+            this.recordFailure(toolName);
+        }
+    }
+
     recordFailure(toolName: string): void {
         const count = (this.failureCounts.get(toolName) || 0) + 1;
         this.failureCounts.set(toolName, count);
