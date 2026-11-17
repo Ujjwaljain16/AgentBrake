@@ -16,7 +16,7 @@
       "benign": 10
     },
     "agentbrake": {
-      "label": "AgentBrake v4",
+      "label": "AgentBrake",
       "attacksBlocked": 18,
       "attacks": 21,
       "falsePositives": 0,

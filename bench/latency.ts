@@ -99,11 +99,11 @@ async function main() {
     const realError = console.error;
     console.error = () => undefined;
 
-    const v4 = () => buildPolicies(ConfigLoader.load(path.join(ROOT, "bench", "configs", "agentbrake.yml")), { platform: "posix", homeDir: HOME });
+    const agentbrake = () => buildPolicies(ConfigLoader.load(path.join(ROOT, "bench", "configs", "agentbrake.yml")), { platform: "posix", homeDir: HOME });
     const body = { url: "https://hooks.chat.example/ops", body: randomText(1024, 7) };
     const N = 3000;
     const base = await roundTrips([allowAll], 300, N, body);
-    const full = await roundTrips(v4(), 300, N, body);
+    const full = await roundTrips(agentbrake(), 300, N, body);
 
     // Flow check scaling.
     const store = new TaintStore();
@@ -143,7 +143,7 @@ async function main() {
 
     console.log("\nPer-call round trip through the proxy (microseconds, 1 KiB argument, in-process)\n");
     console.log("                    p50      p95      p99");
-    for (const [name, r] of [["no policy", result.roundTripMicros.noPolicy], ["AgentBrake v4", result.roundTripMicros.agentbrake]] as const) {
+    for (const [name, r] of [["no policy", result.roundTripMicros.noPolicy], ["AgentBrake", result.roundTripMicros.agentbrake]] as const) {
         console.log(`${name.padEnd(18)}${String(r.p50).padStart(6)}   ${String(r.p95).padStart(6)}   ${String(r.p99).padStart(6)}`);
     }
     console.log(`\nAdded by AgentBrake: p50 ${result.overheadMicros.p50} us, p99 ${result.overheadMicros.p99} us`);
@@ -160,7 +160,7 @@ async function main() {
         "| per call, 1 KiB argument | p50 (µs) | p95 (µs) | p99 (µs) |",
         "|---|---|---|---|",
         `| No policy | ${result.roundTripMicros.noPolicy.p50} | ${result.roundTripMicros.noPolicy.p95} | ${result.roundTripMicros.noPolicy.p99} |`,
-        `| AgentBrake v4 (Gauntlet config) | ${result.roundTripMicros.agentbrake.p50} | ${result.roundTripMicros.agentbrake.p95} | ${result.roundTripMicros.agentbrake.p99} |`,
+        `| AgentBrake (Gauntlet config) | ${result.roundTripMicros.agentbrake.p50} | ${result.roundTripMicros.agentbrake.p95} | ${result.roundTripMicros.agentbrake.p99} |`,
         "",
         `Flow check against 256 KiB of protected text (${storeStats.fingerprints} fingerprints):`,
         "",

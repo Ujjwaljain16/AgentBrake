@@ -1,6 +1,6 @@
 /**
  * The AgentBrake Gauntlet: scripted attacks and benign tasks, each run through the real proxy
- * three ways (no policy, allow-list + regex baseline, AgentBrake v4). Deterministic: no network,
+ * three ways (no policy, allow-list + regex baseline, AgentBrake). Deterministic: no network,
  * no model, no API key. Exits non-zero if AgentBrake's result on any scenario differs from the
  * recorded expectation, so it doubles as a regression gate in CI.
  *
@@ -27,7 +27,7 @@ const fromConfig = (file: string) => () =>
 const ARMS: Arm[] = [
     { key: "none", label: "No policy", policies: () => [allowAll] },
     { key: "baseline", label: "Allow-list + regex", policies: fromConfig("baseline.yml") },
-    { key: "agentbrake", label: "AgentBrake v4", policies: fromConfig("agentbrake.yml") }
+    { key: "agentbrake", label: "AgentBrake", policies: fromConfig("agentbrake.yml") }
 ];
 
 async function main() {

@@ -5,19 +5,19 @@
   "payloadBytes": 1024,
   "roundTripMicros": {
     "noPolicy": {
-      "p50": 13.7,
-      "p95": 27.8,
-      "p99": 64.7
+      "p50": 12.7,
+      "p95": 29.5,
+      "p99": 49.9
     },
     "agentbrake": {
-      "p50": 114,
-      "p95": 196.3,
-      "p99": 335.7
+      "p50": 102.5,
+      "p95": 136.9,
+      "p99": 298.8
     }
   },
   "overheadMicros": {
-    "p50": 100.3,
-    "p99": 271
+    "p50": 89.8,
+    "p99": 248.9
   },
   "flowCheck": {
     "protectedBytes": 262144,
@@ -25,19 +25,19 @@
     "scaling": [
       {
         "bytes": 1024,
-        "medianMs": 0.181
+        "medianMs": 0.182
       },
       {
         "bytes": 10240,
-        "medianMs": 2.943
+        "medianMs": 1.724
       },
       {
         "bytes": 102400,
-        "medianMs": 16.378
+        "medianMs": 12.169
       },
       {
         "bytes": 1048576,
-        "medianMs": 152.095
+        "medianMs": 131.086
       }
     ]
   }

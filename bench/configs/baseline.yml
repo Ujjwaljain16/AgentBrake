@@ -1,4 +1,4 @@
-# Gauntlet baseline: the typical "allow-list + regex DLP" setup (AgentBrake v3 features only).
+# Gauntlet baseline: a typical tool allow-list with regex argument rules.
 version: "3.0"
 agent:
   name: gauntlet-baseline

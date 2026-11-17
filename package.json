@@ -1,6 +1,6 @@
 {
   "name": "agentbrake",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "MCP proxy that enforces policy on AI agent tool calls and tracks secret data across calls (winnowing fingerprints) to stop exfiltration, SSRF and path traversal.",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",

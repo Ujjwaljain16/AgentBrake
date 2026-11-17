@@ -1,4 +1,4 @@
-# Gauntlet: AgentBrake v4 (typed argument rules + secret-flow tracking). No regexes.
+# Gauntlet: AgentBrake with typed argument rules and secret-flow tracking. No regexes.
 version: "3.0"
 agent:
   name: gauntlet-agentbrake
