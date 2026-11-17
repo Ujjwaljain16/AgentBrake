@@ -43,45 +43,46 @@ jobs:
           docker run --rm agentbrake:ci node dist/src/proxy/index.js
           test $? -eq 1
 
+  # Publishes with npm trusted publishing (OIDC): no npm token is stored anywhere. The package's
+  # Trusted Publisher on npmjs.com must name this repository and workflow file (ci.yml).
   publish-npm:
-    needs: test
+    needs: [test, docker-build]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
       contents: read
-      id-token: write
+      id-token: write   # lets npm exchange GitHub's OIDC token for a short-lived publish credential
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          registry-url: 'https://registry.npmjs.org'
+          node-version: 24
           cache: 'npm'
+
+      - name: npm with trusted-publishing support (>= 11.5.1)
+        run: npm install -g npm@^11.5.1 && npm --version
 
       - run: npm ci
       - run: npm run build
       - run: npm test
 
-      - name: Check if version changed
+      - name: Check whether this version is already on npm
         id: version
         run: |
-          PUBLISHED=$(npm view agentbrake version 2>/dev/null || echo "0.0.0")
           CURRENT=$(node -p "require('./package.json').version")
-          if [ "$PUBLISHED" != "$CURRENT" ]; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-            echo "Version changed: $PUBLISHED -> $CURRENT"
+          if npm view "agentbrake@$CURRENT" version >/dev/null 2>&1; then
+            echo "publish=false" >> $GITHUB_OUTPUT
+            echo "agentbrake@$CURRENT is already published; nothing to do."
           else
-            echo "changed=false" >> $GITHUB_OUTPUT
-            echo "Version unchanged: $CURRENT"
+            echo "publish=true" >> $GITHUB_OUTPUT
+            echo "agentbrake@$CURRENT is not on npm yet; publishing."
           fi
 
-      - name: Publish to npm
-        if: steps.version.outputs.changed == 'true'
+      - name: Publish to npm (trusted publishing, with provenance)
+        if: steps.version.outputs.publish == 'true'
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-docker:
     needs: [test, docker-build]
