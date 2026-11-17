@@ -5,7 +5,7 @@
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
   "bin": {
-    "agent-brake": "./dist/src/proxy/index.js"
+    "agent-brake": "dist/src/proxy/index.js"
   },
   "scripts": {
     "build": "tsc",
