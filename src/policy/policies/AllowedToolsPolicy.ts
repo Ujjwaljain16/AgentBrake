@@ -9,7 +9,11 @@ export class AllowedToolsPolicy implements Policy {
         this.allowedTools = new Set(allowedTools);
     }
 
-    async validate(request: CallToolRequest, state: AgentRuntimeState): Promise<PolicyResult | null> {
+    isToolVisible(toolName: string): boolean {
+        return this.allowedTools.has(toolName);
+    }
+
+    async validate(request: CallToolRequest, _state: AgentRuntimeState): Promise<PolicyResult | null> {
         const toolName = request.params.name;
 
         if (!this.allowedTools.has(toolName)) {

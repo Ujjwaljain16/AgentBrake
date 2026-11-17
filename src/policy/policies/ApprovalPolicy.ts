@@ -1,13 +1,16 @@
 import { CallToolRequest } from "@modelcontextprotocol/sdk/types.js";
-import { AgentRuntimeState, Policy, PolicyResult } from "../types.js";
+import { AgentRuntimeState, Policy, PolicyResult, canonicalJson } from "../types.js";
 
 /**
  * Human-in-the-Loop Approval Policy (EXPERIMENTAL / incomplete).
  *
- * Calls to the listed tools are never forwarded by this policy on their own: the first
- * attempt yields "request_approval" and repeats are blocked while pending. approve() and
- * deny() exist for library use, but the proxy exposes NO channel that calls them, so in the
- * CLI proxy these tools are effectively always refused. The WebhookNotifier is not wired in.
+ * Calls to the listed tools are never forwarded on their own: the first attempt yields
+ * "request_approval" and repeats are blocked while pending. approve() and deny() exist for
+ * library use, but the CLI proxy exposes NO channel that calls them, so there these tools are
+ * effectively always refused.
+ *
+ * Request keys use canonical JSON, so the same arguments in a different key order are the same
+ * request. An approval is consumed only when the call is actually forwarded (commit).
  */
 export class ApprovalPolicy implements Policy {
     name = "ApprovalPolicy";
@@ -22,22 +25,14 @@ export class ApprovalPolicy implements Policy {
         this.toolsRequiringApproval = new Set(toolsRequiringApproval);
     }
 
-    async validate(request: CallToolRequest, state: AgentRuntimeState): Promise<PolicyResult | null> {
+    async validate(request: CallToolRequest, _state: AgentRuntimeState): Promise<PolicyResult | null> {
         const toolName = request.params.name;
+        if (!this.toolsRequiringApproval.has(toolName)) return null;
 
-        if (!this.toolsRequiringApproval.has(toolName)) {
-            return null;
-        }
+        const requestKey = ApprovalPolicy.requestKey(request);
 
-        const requestKey = this.getRequestKey(request);
+        if (this.approvedRequests.has(requestKey)) return null;
 
-        // Check if already approved
-        if (this.approvedRequests.has(requestKey)) {
-            this.approvedRequests.delete(requestKey);
-            return null;
-        }
-
-        // Check if pending approval
         if (this.pendingApprovals.has(requestKey)) {
             return {
                 policyName: this.name,
@@ -46,21 +41,24 @@ export class ApprovalPolicy implements Policy {
             };
         }
 
-        // Request approval (bounded so a misbehaving agent cannot grow memory without limit)
+        // Bounded so a misbehaving agent cannot grow memory without limit.
         if (this.pendingApprovals.size >= ApprovalPolicy.MAX_PENDING) {
             const oldest = this.pendingApprovals.keys().next().value;
             if (oldest !== undefined) this.pendingApprovals.delete(oldest);
         }
-        this.pendingApprovals.set(requestKey, {
-            requestId: requestKey,
-            timestamp: Date.now()
-        });
+        this.pendingApprovals.set(requestKey, { requestId: requestKey, timestamp: Date.now() });
 
         return {
             policyName: this.name,
             action: "request_approval",
             reason: `Tool '${toolName}' requires human approval. No approval channel is implemented in the proxy; the call was not forwarded.`
         };
+    }
+
+    commit(request: CallToolRequest): void {
+        if (!this.toolsRequiringApproval.has(request.params.name)) return;
+        // One approval admits exactly one forwarded call.
+        this.approvedRequests.delete(ApprovalPolicy.requestKey(request));
     }
 
     approve(requestKey: string): boolean {
@@ -80,7 +78,7 @@ export class ApprovalPolicy implements Policy {
         return Array.from(this.pendingApprovals.values());
     }
 
-    private getRequestKey(request: CallToolRequest): string {
-        return `${request.params.name}:${JSON.stringify(request.params.arguments)}`;
+    static requestKey(request: CallToolRequest): string {
+        return `${request.params.name}:${canonicalJson(request.params.arguments ?? {})}`;
     }
 }

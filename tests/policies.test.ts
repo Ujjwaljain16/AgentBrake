@@ -15,9 +15,15 @@ const mockState = (): AgentRuntimeState => ({
     toolCallsCount: 0,
     blocked: false,
     trustLevel: "sandbox",
-    estimatedCost: 0,
-    history: []
+    decisions: 0
 });
+
+/** Validate, and record usage (commit) only when the policy would let the call through. */
+async function admit(policy: { validate: Function; commit?: Function }, request: any): Promise<PolicyResult | null> {
+    const result = await policy.validate(request, mockState());
+    if (!result || result.action === "warn") policy.commit?.(request, mockState());
+    return result;
+}
 
 describe("MaxToolCallsPolicy", () => {
     it("should allow calls under limit", async () => {
@@ -78,25 +84,25 @@ describe("MaxRuntimePolicy", () => {
 describe("RateLimitPolicy", () => {
     it("should allow calls under rate limit", async () => {
         const policy = new RateLimitPolicy(10, 60);
-        const result = await policy.validate(mockRequest("calculator"), mockState());
+        const result = await admit(policy, mockRequest("calculator"));
         expect(result).toBeNull();
     });
 
     it("should warn when approaching limit", async () => {
         const policy = new RateLimitPolicy(10, 60);
         for (let i = 0; i < 8; i++) {
-            await policy.validate(mockRequest("calculator"), mockState());
+            await admit(policy, mockRequest("calculator"));
         }
-        const result = await policy.validate(mockRequest("calculator"), mockState());
+        const result = await admit(policy, mockRequest("calculator"));
         expect(result?.action).toBe("warn");
     });
 
     it("should block at limit", async () => {
         const policy = new RateLimitPolicy(5, 60);
         for (let i = 0; i < 5; i++) {
-            await policy.validate(mockRequest("calculator"), mockState());
+            await admit(policy, mockRequest("calculator"));
         }
-        const result = await policy.validate(mockRequest("calculator"), mockState());
+        const result = await admit(policy, mockRequest("calculator"));
         expect(result?.action).toBe("block");
     });
 });
@@ -167,40 +173,40 @@ describe("CircuitBreakerPolicy", () => {
 describe("BudgetPolicy", () => {
     it("should allow calls under budget", async () => {
         const policy = new BudgetPolicy(1.00);
-        const result = await policy.validate(mockRequest("calculator"), mockState());
+        const result = await admit(policy, mockRequest("calculator"));
         expect(result).toBeNull();
     });
 
     it("should warn at 80% budget", async () => {
         const policy = new BudgetPolicy(0.10, [], 0.01);
         for (let i = 0; i < 8; i++) {
-            await policy.validate(mockRequest("calculator"), mockState());
+            await admit(policy, mockRequest("calculator"));
         }
-        const result = await policy.validate(mockRequest("calculator"), mockState());
+        const result = await admit(policy, mockRequest("calculator"));
         expect(result?.action).toBe("warn");
     });
 
     it("should block when budget exceeded", async () => {
         const policy = new BudgetPolicy(0.05, [], 0.01);
         for (let i = 0; i < 5; i++) {
-            await policy.validate(mockRequest("calculator"), mockState());
+            await admit(policy, mockRequest("calculator"));
         }
-        const result = await policy.validate(mockRequest("calculator"), mockState());
+        const result = await admit(policy, mockRequest("calculator"));
         expect(result?.action).toBe("block");
         expect(result?.reason).toContain("Budget exceeded");
     });
 
     it("should track spend correctly", async () => {
         const policy = new BudgetPolicy(1.00, [], 0.01);
-        await policy.validate(mockRequest("calculator"), mockState());
-        await policy.validate(mockRequest("calculator"), mockState());
+        await admit(policy, mockRequest("calculator"));
+        await admit(policy, mockRequest("calculator"));
         expect(policy.getSpend()).toBe(0.02);
         expect(policy.getPercentUsed()).toBe(2);
     });
 
     it("should reset spend", async () => {
         const policy = new BudgetPolicy(1.00, [], 0.01);
-        await policy.validate(mockRequest("calculator"), mockState());
+        await admit(policy, mockRequest("calculator"));
         policy.reset();
         expect(policy.getSpend()).toBe(0);
     });

@@ -1,0 +1,37 @@
+# Gauntlet baseline: the typical "allow-list + regex DLP" setup (AgentBrake v3 features only).
+version: "3.0"
+agent:
+  name: gauntlet-baseline
+
+policies:
+  security:
+    allowed_tools: [read_file, write_file, fetch_url, http_post, send_email, execute_shell, debug_env, search_web]
+    granular_rules:
+      - tool: read_file
+        deny_if:
+          arguments:
+            path: ".*(credentials|\\.env|\\.aws|\\.ssh|id_rsa|passwd|shadow|secrets?).*"
+      - tool: read_file
+        allow_if:
+          arguments:
+            path: "^(/srv/app/data/|/tmp/).*"
+      - tool: write_file
+        allow_if:
+          arguments:
+            path: "^(/srv/app/data/|/tmp/).*"
+      - tool: fetch_url
+        deny_if:
+          arguments:
+            url: ".*(localhost|127\\.0\\.0\\.1|169\\.254\\.169\\.254|metadata).*"
+      - tool: http_post
+        deny_if:
+          arguments:
+            url: ".*(localhost|127\\.0\\.0\\.1|169\\.254\\.169\\.254|metadata).*"
+      - tool: execute_shell
+        deny_if:
+          arguments:
+            command: ".*(rm -rf|mkfs|dd if=|nc -e|/dev/tcp).*"
+      - tool: send_email
+        deny_if:
+          arguments:
+            to: ".*@(gmail|yahoo|hotmail|outlook)\\.com.*"

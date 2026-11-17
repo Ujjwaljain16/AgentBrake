@@ -15,7 +15,8 @@
     },
     "include": [
         "src/**/*",
-        "examples/**/*"
+        "examples/**/*",
+        "bench/**/*"
     ],
     "exclude": [
         "node_modules"

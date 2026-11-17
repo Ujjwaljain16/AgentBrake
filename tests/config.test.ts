@@ -14,7 +14,7 @@ beforeAll(() => { jest.spyOn(console, "error").mockImplementation(() => undefine
 afterAll(() => { jest.restoreAllMocks(); });
 
 const state = (): AgentRuntimeState => ({
-    toolCallsCount: 0, blocked: false, trustLevel: "sandbox", estimatedCost: 0, history: []
+    toolCallsCount: 0, blocked: false, trustLevel: "sandbox", decisions: 0
 });
 const req = (name: string, args: any = {}) => ({ params: { name, arguments: args }, method: "tools/call" } as any);
 

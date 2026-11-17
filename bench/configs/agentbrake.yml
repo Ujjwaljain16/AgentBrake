@@ -1,0 +1,35 @@
+# Gauntlet: AgentBrake v4 (typed argument rules + secret-flow tracking). No regexes.
+version: "3.0"
+agent:
+  name: gauntlet-agentbrake
+
+policies:
+  security:
+    allowed_tools: [read_file, write_file, fetch_url, http_post, send_email, execute_shell, debug_env, search_web]
+    argument_rules:
+      # Files: only the data directory and /tmp, compared after resolving "..", "~" and file: URLs.
+      - type: path
+        tool: [read_file, write_file]
+        argument: path
+        within: [/srv/app/data, /tmp]
+      # Network: no loopback, private, link-local or metadata targets, in any spelling.
+      - type: url
+        tool: [fetch_url, http_post]
+        argument: url
+        allowed_schemes: [https, http]
+        block_private_networks: true
+
+  flow:
+    sources:
+      - tool: read_file
+        label: pii
+        paths: { argument: path, within: [/srv/app/data/customers.csv] }
+      - tool: read_file
+        label: secret
+        paths: { argument: path, within: [/srv/app/config, /srv/app/.env, "~/.aws", "~/.ssh"] }
+      - tool: [fetch_url, search_web]
+        label: untrusted
+    # Writes are already confined to the data dir by the path rule above.
+    exempt_sinks: [write_file]
+    # Protected data + untrusted content in one session: refuse outgoing calls.
+    lethal_trifecta: request_approval

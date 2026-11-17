@@ -10,7 +10,11 @@ export class DeniedToolsPolicy implements Policy {
         this.deniedTools = new Set(deniedTools);
     }
 
-    async validate(request: CallToolRequest, state: AgentRuntimeState): Promise<PolicyResult | null> {
+    isToolVisible(toolName: string): boolean {
+        return !this.deniedTools.has(toolName);
+    }
+
+    async validate(request: CallToolRequest, _state: AgentRuntimeState): Promise<PolicyResult | null> {
         const toolName = request.params.name;
 
         if (this.deniedTools.has(toolName)) {

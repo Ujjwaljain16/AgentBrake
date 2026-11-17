@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [18, 20, 22]
+        node-version: [20, 22, 24]
 
     steps:
       - uses: actions/checkout@v4
@@ -23,8 +23,25 @@ jobs:
           cache: 'npm'
 
       - run: npm ci
+      - run: npm run lint
       - run: npm run build
       - run: npm test
+      - name: Gauntlet (attack scoreboard; fails on any regression)
+        run: node dist/bench/gauntlet.js
+      - name: Committed Gauntlet results are reproducible
+        run: git diff --exit-code bench/results/gauntlet.json bench/results/gauntlet.md
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image (no push)
+        run: docker build -t agentbrake:ci .
+      - name: Smoke test (no command prints usage and exits 1)
+        run: |
+          set +e
+          docker run --rm agentbrake:ci node dist/src/proxy/index.js
+          test $? -eq 1
 
   publish-npm:
     needs: test
@@ -67,26 +84,35 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-docker:
-    needs: test
+    needs: [test, docker-build]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    env:
+      HAS_DOCKERHUB: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Skip when Docker Hub credentials are not configured
+        if: env.HAS_DOCKERHUB != 'true'
+        run: echo "::notice::DOCKERHUB_USERNAME / DOCKERHUB_TOKEN not set; skipping image publish."
+
       - name: Log in to Docker Hub
+        if: env.HAS_DOCKERHUB == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Extract version
+        if: env.HAS_DOCKERHUB == 'true'
         id: meta
         run: |
           VERSION=$(node -p "require('./package.json').version")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Build and push Docker image
+        if: env.HAS_DOCKERHUB == 'true'
         uses: docker/build-push-action@v5
         with:
           context: .

@@ -11,10 +11,20 @@ import { RateLimitPolicy } from "../policy/policies/RateLimitPolicy.js";
 import { ApprovalPolicy } from "../policy/policies/ApprovalPolicy.js";
 import { CircuitBreakerPolicy } from "../policy/policies/CircuitBreakerPolicy.js";
 import { BudgetPolicy } from "../policy/policies/BudgetPolicy.js";
+import { ArgumentRulesPolicy } from "../policy/policies/ArgumentRulesPolicy.js";
+import { FlowPolicy } from "../policy/policies/FlowPolicy.js";
+import { Platform } from "../policy/semantic/paths.js";
+
+export interface BuildOptions {
+    /** Path semantics for path rules and flow sources (default: the host platform). */
+    platform?: Platform;
+    /** Home directory used to expand "~" (default: the current user's). */
+    homeDir?: string;
+}
 
 /** Build the policy chain from a validated config. Throws if any policy (e.g. a regex) is invalid. */
-export function buildPolicies(config: AgentBrakeConfig): Policy[] {
-    const { limits, security } = config.policies;
+export function buildPolicies(config: AgentBrakeConfig, options: BuildOptions = {}): Policy[] {
+    const { limits, security, global } = config.policies;
     const policies: Policy[] = [];
 
     // Explicit undefined checks: a limit of 0 is a real (very strict) limit, not "unset".
@@ -34,7 +44,16 @@ export function buildPolicies(config: AgentBrakeConfig): Policy[] {
         policies.push(new AllowedToolsPolicy(security.allowed_tools));
     }
     if (security.granular_rules?.length) {
-        policies.push(new GranularAccessPolicy(security.granular_rules));
+        const defaultAction = global?.on_violation ?? "block";
+        policies.push(new GranularAccessPolicy(
+            security.granular_rules.map(rule => ({ ...rule, action: rule.action ?? defaultAction }))
+        ));
+    }
+    if (security.argument_rules?.length) {
+        policies.push(new ArgumentRulesPolicy(security.argument_rules, global?.on_violation ?? "block", options));
+    }
+    if (config.policies.flow) {
+        policies.push(new FlowPolicy(config.policies.flow, options));
     }
     if (security.require_approval) {
         policies.push(new ApprovalPolicy(security.require_approval));
@@ -46,7 +65,14 @@ export function buildPolicies(config: AgentBrakeConfig): Policy[] {
         ));
     }
     if (limits.budget) {
-        policies.push(new BudgetPolicy(limits.budget.max_cost));
+        const { max_cost, tool_costs, cost_per_call, warn_threshold, currency } = limits.budget;
+        policies.push(new BudgetPolicy(
+            max_cost,
+            Object.entries(tool_costs ?? {}).map(([tool, costPerCall]) => ({ tool, costPerCall })),
+            cost_per_call,
+            warn_threshold,
+            currency
+        ));
     }
 
     return policies;

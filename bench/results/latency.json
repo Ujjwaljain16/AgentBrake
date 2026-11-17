@@ -1,0 +1,44 @@
+{
+  "node": "v22.19.0",
+  "platform": "win32-x64",
+  "calls": 3000,
+  "payloadBytes": 1024,
+  "roundTripMicros": {
+    "noPolicy": {
+      "p50": 13.7,
+      "p95": 27.8,
+      "p99": 64.7
+    },
+    "agentbrake": {
+      "p50": 114,
+      "p95": 196.3,
+      "p99": 335.7
+    }
+  },
+  "overheadMicros": {
+    "p50": 100.3,
+    "p99": 271
+  },
+  "flowCheck": {
+    "protectedBytes": 262144,
+    "fingerprints": 42203,
+    "scaling": [
+      {
+        "bytes": 1024,
+        "medianMs": 0.181
+      },
+      {
+        "bytes": 10240,
+        "medianMs": 2.943
+      },
+      {
+        "bytes": 102400,
+        "medianMs": 16.378
+      },
+      {
+        "bytes": 1048576,
+        "medianMs": 152.095
+      }
+    ]
+  }
+}

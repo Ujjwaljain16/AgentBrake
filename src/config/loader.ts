@@ -90,7 +90,28 @@ export class ConfigLoader {
             throw new ConfigError(`Invalid config ${filePath}: ${details}`);
         }
 
+        const ignored = ignoredSettings(parsed);
+        if (ignored.length > 0) {
+            Logger.info("WARNING: these config settings are accepted but have no effect yet", { settings: ignored });
+        }
+
         Logger.info(`Loaded configuration from ${path.basename(filePath)}`, { agent: result.data.agent.name });
         return result.data;
     }
+}
+
+/** Settings that validate but are not enforced, so operators are not misled into relying on them. */
+export function ignoredSettings(raw: unknown): string[] {
+    const get = (obj: unknown, ...keys: string[]): unknown => {
+        let cur = obj;
+        for (const key of keys) {
+            if (cur === null || typeof cur !== "object" || !Object.prototype.hasOwnProperty.call(cur, key)) return undefined;
+            cur = (cur as Record<string, unknown>)[key];
+        }
+        return cur;
+    };
+    const out: string[] = [];
+    if (get(raw, "agent", "trust_level") !== undefined) out.push("agent.trust_level");
+    if (get(raw, "policies", "global", "max_retries") !== undefined) out.push("policies.global.max_retries");
+    return out;
 }

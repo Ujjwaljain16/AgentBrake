@@ -2,15 +2,18 @@ import { spawn, ChildProcess } from "child_process";
 import { Readable, Writable } from "stream";
 import { RuntimeMonitor } from "../monitor/tracker.js";
 import { Logger } from "../monitor/logger.js";
-import { Policy } from "../policy/types.js";
+import { Policy, PolicyResult, TraceEntry, ToolOutcome, toolCallRequest } from "../policy/types.js";
 import { MaxToolCallsPolicy } from "../policy/policies/MaxToolCallsPolicy.js";
 import { LineFramer, FrameEvent } from "./framing.js";
 
 export const DEFAULT_MAX_MESSAGE_BYTES = 10 * 1024 * 1024;
 export const DEFAULT_MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 const MAX_TRACKED_CALLS = 10000;
+/** setTimeout overflows above this many milliseconds (~24.8 days). */
+const MAX_TIMER_MS = 2_147_483_647;
 
 const TOOL_CALL_METHODS = new Set(["tools/call", "call_tool"]);
+const TOOL_LIST_METHODS = new Set(["tools/list", "list_tools"]);
 
 // JSON-RPC error codes
 const PARSE_ERROR = -32700;
@@ -20,6 +23,12 @@ const POLICY_ERROR = -32000;
 const APPROVAL_ERROR = -32001;
 
 type JsonRpcId = string | number | null;
+
+interface Verdict {
+    policyName: string;
+    action: string;
+    reason: string;
+}
 
 export interface BrakeProxyOptions {
     /** Client -> proxy stream (default: process.stdin). */
@@ -34,6 +43,8 @@ export interface BrakeProxyOptions {
     maxResponseBytes?: number;
     /** Called instead of process.exit (for tests). */
     exit?: (code: number) => void;
+    /** Clock (for tests). */
+    now?: () => number;
 }
 
 /** Environment for the wrapped server: everything except AgentBrake's own configuration/secrets. */
@@ -53,11 +64,14 @@ export class BrakeProxy {
     private input: Readable;
     private output: Writable;
     private exit: (code: number) => void;
+    private now: () => number;
     private clientFramer: LineFramer;
     private serverFramer: LineFramer;
     private queue: Promise<void> = Promise.resolve();
     private terminating = false;
-    private pendingCalls = new Map<string, string>();
+    private pendingCalls = new Map<string, { toolName: string; args: Record<string, unknown> }>();
+    private pendingToolLists = new Set<string>();
+    private deadlineTimer: NodeJS.Timeout | null = null;
 
     constructor(
         private targetCommand: string,
@@ -70,11 +84,21 @@ export class BrakeProxy {
         this.input = options.input ?? process.stdin;
         this.output = options.output ?? process.stdout;
         this.exit = options.exit ?? ((code: number) => process.exit(code));
+        this.now = options.now ?? Date.now;
         this.clientFramer = new LineFramer(options.maxMessageBytes ?? DEFAULT_MAX_MESSAGE_BYTES);
         this.serverFramer = new LineFramer(options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES);
     }
 
+    /** Counters for observability and tests (forwarded calls, blocks, warnings, ...). */
+    getStats(): Record<string, number> {
+        return this.monitor.getStats();
+    }
+
     start(): void {
+        for (const policy of this.policies) {
+            policy.onSessionStart?.();
+        }
+
         // No shell: the target command and args are passed verbatim, never interpreted.
         this.child = this.options.spawnFn
             ? this.options.spawnFn(this.targetCommand, this.targetArgs)
@@ -90,6 +114,7 @@ export class BrakeProxy {
         }
 
         const child = this.child;
+        this.armDeadline();
 
         child.on("error", (err) => {
             Logger.info("Failed to run target server; exiting.", { error: err.message });
@@ -121,6 +146,7 @@ export class BrakeProxy {
         });
 
         child.on("close", (code) => {
+            if (this.deadlineTimer) clearTimeout(this.deadlineTimer);
             for (const event of this.serverFramer.end()) {
                 this.handleServerEvent(event);
             }
@@ -201,36 +227,39 @@ export class BrakeProxy {
             return;
         }
 
-        if (!TOOL_CALL_METHODS.has(msg.method.trim().toLowerCase())) {
+        const method = msg.method.trim().toLowerCase();
+        if (!TOOL_CALL_METHODS.has(method)) {
+            if (TOOL_LIST_METHODS.has(method) && (typeof msg.id === "string" || typeof msg.id === "number")) {
+                this.trackBounded(this.pendingToolLists, this.idKey(msg.id));
+            }
             this.forward(msg);
             return;
         }
 
-        const toolName = this.toolNameOf(msg.params);
-        if (toolName === null) {
+        const parsed = this.parseToolCall(msg.params);
+        if (parsed === null) {
             Logger.info("Rejected malformed tools/call");
             this.writeError(hasId ? id : undefined, INVALID_PARAMS, "[AgentBrake] BLOCK: malformed tools/call params");
             return;
         }
 
-        const blocked = await this.interceptRequest(msg, hasId ? id : undefined, toolName);
+        const blocked = await this.interceptRequest(hasId ? id : undefined, parsed.name, parsed.args);
         if (!blocked) {
             if (hasId && (typeof msg.id === "string" || typeof msg.id === "number")) {
-                this.trackCall(msg.id, toolName);
+                this.trackCall(msg.id, parsed.name, parsed.args);
             }
             this.forward(msg);
         }
     }
 
-    /** Returns the tool name if params is a well-formed tools/call payload, else null. */
-    private toolNameOf(params: unknown): string | null {
+    /** Returns name and arguments if params is a well-formed tools/call payload, else null. */
+    private parseToolCall(params: unknown): { name: string; args: Record<string, unknown> } | null {
         if (params === null || typeof params !== "object" || Array.isArray(params)) return null;
         const p = params as Record<string, unknown>;
         if (typeof p.name !== "string" || p.name.length === 0) return null;
-        if (p.arguments !== undefined) {
-            if (p.arguments === null || typeof p.arguments !== "object" || Array.isArray(p.arguments)) return null;
-        }
-        return p.name;
+        if (p.arguments === undefined) return { name: p.name, args: {} };
+        if (p.arguments === null || typeof p.arguments !== "object" || Array.isArray(p.arguments)) return null;
+        return { name: p.name, args: p.arguments as Record<string, unknown> };
     }
 
     private validId(id: unknown): JsonRpcId {
@@ -245,84 +274,74 @@ export class BrakeProxy {
     /**
      * Run the policy chain. Returns true when the call must NOT be forwarded.
      * respondTo is undefined for notifications (no response may be sent).
+     *
+     * Two phases: every policy validates first (no side effects); only if all of them pass does
+     * each policy commit (use up rate-limit quota, budget, approval tokens). A blocked call
+     * therefore costs nothing.
      */
-    private async interceptRequest(message: Record<string, unknown>, respondTo: JsonRpcId | undefined, toolName: string): Promise<boolean> {
-        const request = { params: message.params, method: "tools/call" } as any;
+    private async interceptRequest(respondTo: JsonRpcId | undefined, toolName: string, args: Record<string, unknown>): Promise<boolean> {
+        const request = toolCallRequest(toolName, args);
         const currentState = this.monitor.getState();
+        const trace: TraceEntry[] = [];
+        const warnings: PolicyResult[] = [];
 
         for (const policy of this.policies) {
-            let result;
+            let result: PolicyResult | null;
             try {
                 result = await policy.validate(request, currentState);
             } catch (err) {
-                Logger.violation(policy.name, "Policy threw while evaluating; failing closed", {
-                    action: "BLOCK",
-                    tool: toolName,
-                    error: err instanceof Error ? err.message : String(err)
-                });
-                this.monitor.logAction("BLOCK", policy.name);
-                this.writePolicyError(respondTo, {
+                trace.push({ policy: policy.name, verdict: "error" });
+                this.refuse(respondTo, toolName, trace, {
                     policyName: policy.name,
                     action: "block",
                     reason: "Policy evaluation failed; call blocked."
-                });
+                }, err);
                 return true;
             }
 
-            if (!result) continue;
+            if (!result) {
+                trace.push({ policy: policy.name, verdict: "pass" });
+                continue;
+            }
 
             switch (result.action) {
                 case "warn":
-                    Logger.violation(result.policyName, result.reason, {
-                        action: "WARN",
-                        tool: toolName,
-                        stats: currentState
-                    });
-                    this.monitor.logAction("WARN", result.policyName);
+                    trace.push({ policy: policy.name, verdict: "warn" });
+                    warnings.push(result);
                     break;
 
                 case "block":
                 case "kill":
-                case "sandbox": {
-                    // "sandbox" isolation is not implemented, so it is enforced as a block (fail closed).
-                    const action = result.action === "sandbox" ? "block" : result.action;
-                    const reason = result.action === "sandbox"
-                        ? `${result.reason} (sandbox isolation is not implemented; blocked)`
-                        : result.reason;
-                    this.monitor.setBlocked(reason);
-                    Logger.violation(result.policyName, reason, {
-                        action: action.toUpperCase(),
-                        tool: toolName,
-                        stats: currentState
-                    });
-                    this.monitor.logAction(action.toUpperCase(), result.policyName);
-
-                    if (action === "kill") {
-                        this.terminating = true;
-                        this.writePolicyError(respondTo, { policyName: result.policyName, action, reason }, () => {
-                            Logger.info("KILL action triggered. Exiting proxy.");
-                            this.child?.kill();
-                            this.exit(1);
-                        });
-                    } else {
-                        this.writePolicyError(respondTo, { policyName: result.policyName, action, reason });
-                    }
+                    trace.push({ policy: policy.name, verdict: result.action });
+                    this.refuse(respondTo, toolName, trace, result);
                     return true;
-                }
+
+                case "sandbox":
+                    // Sandbox isolation is not implemented, so it is enforced as a block (fail closed).
+                    trace.push({ policy: policy.name, verdict: "block" });
+                    this.refuse(respondTo, toolName, trace, {
+                        policyName: result.policyName,
+                        action: "block",
+                        reason: `${result.reason} (sandbox isolation is not implemented; blocked)`
+                    });
+                    return true;
 
                 case "request_approval":
+                    trace.push({ policy: policy.name, verdict: "request_approval" });
                     this.monitor.logAction("APPROVAL_REQUIRED", result.policyName);
                     Logger.logEvent("APPROVAL_REQUIRED", {
                         policy: result.policyName,
                         tool: toolName,
-                        reason: result.reason
+                        reason: result.reason,
+                        trace
                     });
                     this.writeApprovalError(respondTo, result);
                     return true;
 
                 default:
                     // Unknown action from a policy: fail closed.
-                    this.writePolicyError(respondTo, {
+                    trace.push({ policy: policy.name, verdict: "block" });
+                    this.refuse(respondTo, toolName, trace, {
                         policyName: result.policyName,
                         action: "block",
                         reason: "Unknown policy action; call blocked."
@@ -331,9 +350,90 @@ export class BrakeProxy {
             }
         }
 
+        // Commit phase: the call will be forwarded.
+        for (const policy of this.policies) {
+            try {
+                policy.commit?.(request, currentState);
+            } catch (err) {
+                this.refuse(respondTo, toolName, trace, {
+                    policyName: policy.name,
+                    action: "block",
+                    reason: "Policy failed to record usage; call blocked."
+                }, err);
+                return true;
+            }
+        }
+
+        for (const warning of warnings) {
+            this.monitor.logAction("WARN", warning.policyName);
+            Logger.violation(warning.policyName, warning.reason, {
+                action: "WARN",
+                tool: toolName,
+                stats: this.monitor.getStats()
+            });
+        }
+
         // Only calls that were actually allowed count toward max_tool_calls.
         this.monitor.incrementToolCalls();
         return false;
+    }
+
+    /** Record, log and answer a block or kill. */
+    private refuse(respondTo: JsonRpcId | undefined, toolName: string, trace: TraceEntry[], verdict: Verdict, err?: unknown): void {
+        const action = verdict.action === "kill" ? "kill" : "block";
+        this.monitor.setBlocked(verdict.reason);
+        this.monitor.logAction(action.toUpperCase(), verdict.policyName);
+        Logger.violation(verdict.policyName, verdict.reason, {
+            action: action.toUpperCase(),
+            tool: toolName,
+            stats: this.monitor.getStats(),
+            trace,
+            ...(err !== undefined ? { error: err instanceof Error ? err.message : String(err) } : {})
+        });
+
+        if (action === "kill") {
+            this.terminate(respondTo, { ...verdict, action });
+        } else {
+            this.writePolicyError(respondTo, { ...verdict, action });
+        }
+    }
+
+    /** Answer the triggering call (if any), stop the server and exit non-zero. */
+    private terminate(respondTo: JsonRpcId | undefined, verdict: Verdict): void {
+        if (this.terminating) return;
+        this.terminating = true;
+        if (this.deadlineTimer) clearTimeout(this.deadlineTimer);
+        this.writePolicyError(respondTo, verdict, () => {
+            Logger.info("KILL action triggered. Exiting proxy.", { policy: verdict.policyName });
+            this.child?.kill();
+            this.exit(1);
+        });
+    }
+
+    /** Hard timer for policies with a deadline (max runtime), so it fires without a tool call. */
+    private armDeadline(): void {
+        let first: { policy: Policy; at: number } | null = null;
+        for (const policy of this.policies) {
+            const at = policy.deadline?.();
+            if (typeof at === "number" && Number.isFinite(at) && (first === null || at < first.at)) {
+                first = { policy, at };
+            }
+        }
+        if (first === null) return;
+
+        const delay = Math.max(0, first.at - this.now());
+        if (delay > MAX_TIMER_MS) return; // left to the per-call check
+
+        const { policy } = first;
+        this.deadlineTimer = setTimeout(() => {
+            this.monitor.logAction("KILL", policy.name);
+            Logger.violation(policy.name, "Session deadline reached", {
+                action: "KILL",
+                stats: this.monitor.getStats()
+            });
+            this.terminate(undefined, { policyName: policy.name, action: "kill", reason: "Session deadline reached." });
+        }, delay);
+        this.deadlineTimer.unref?.();
     }
 
     // ---- server -> client ---------------------------------------------------------------
@@ -357,40 +457,87 @@ export class BrakeProxy {
         }
 
         if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
-            this.observeResponse(parsed as Record<string, unknown>);
+            const msg = parsed as Record<string, unknown>;
+            this.observeResponse(msg);
+            const filtered = this.filterToolList(msg);
+            if (filtered) {
+                this.writeLine(JSON.stringify(filtered));
+                return;
+            }
         }
 
         this.writeLine(line);
     }
 
-    private trackCall(id: string | number, toolName: string): void {
+    private trackCall(id: string | number, toolName: string, args: Record<string, unknown>): void {
         if (this.pendingCalls.size >= MAX_TRACKED_CALLS) {
             const oldest = this.pendingCalls.keys().next().value;
             if (oldest !== undefined) this.pendingCalls.delete(oldest);
         }
-        this.pendingCalls.set(this.idKey(id), toolName);
+        this.pendingCalls.set(this.idKey(id), { toolName, args });
+    }
+
+    private trackBounded(set: Set<string>, key: string): void {
+        if (set.size >= MAX_TRACKED_CALLS) {
+            const oldest = set.values().next().value;
+            if (oldest !== undefined) set.delete(oldest);
+        }
+        set.add(key);
     }
 
     private idKey(id: string | number): string {
         return `${typeof id}:${String(id)}`;
     }
 
-    /** Feed real tool outcomes to policies that want them (e.g. the circuit breaker). */
+    private isResponse(msg: Record<string, unknown>): msg is Record<string, unknown> & { id: string | number } {
+        return msg.method === undefined && (typeof msg.id === "string" || typeof msg.id === "number");
+    }
+
+    /**
+     * If msg answers a tools/list request, return a copy without the tools some policy would
+     * always refuse, so the model is never offered them. Returns null when nothing changes.
+     */
+    private filterToolList(msg: Record<string, unknown>): Record<string, unknown> | null {
+        if (!this.isResponse(msg)) return null;
+        const key = this.idKey(msg.id);
+        if (!this.pendingToolLists.delete(key)) return null;
+
+        const result = msg.result as Record<string, unknown> | undefined;
+        if (!result || typeof result !== "object" || !Array.isArray(result.tools)) return null;
+
+        const visible = result.tools.filter(tool => {
+            const name = (tool as Record<string, unknown> | null)?.name;
+            if (typeof name !== "string") return false; // malformed entry: do not relay
+            return this.policies.every(p => {
+                try {
+                    return p.isToolVisible?.(name) ?? true;
+                } catch {
+                    return false; // fail closed: hide
+                }
+            });
+        });
+        if (visible.length === result.tools.length) return null;
+
+        Logger.logEvent("TOOLS_HIDDEN", { hidden: result.tools.length - visible.length, shown: visible.length });
+        return { ...msg, result: { ...result, tools: visible } };
+    }
+
+    /** Feed real tool outcomes to policies that want them (circuit breaker, flow tracking). */
     private observeResponse(msg: Record<string, unknown>): void {
-        if (typeof msg.id !== "string" && typeof msg.id !== "number") return;
-        if (msg.method !== undefined) return; // a server->client request, not a response
+        if (!this.isResponse(msg)) return;
 
         const key = this.idKey(msg.id);
-        const toolName = this.pendingCalls.get(key);
-        if (toolName === undefined) return;
+        const call = this.pendingCalls.get(key);
+        if (call === undefined) return;
         this.pendingCalls.delete(key);
 
         const result = msg.result as Record<string, unknown> | undefined;
         const success = msg.error === undefined && !(result && typeof result === "object" && result.isError === true);
+        const outcome: ToolOutcome = { toolName: call.toolName, args: call.args, success, result: msg.result };
 
         for (const policy of this.policies) {
             try {
-                policy.observeResult?.(toolName, success);
+                policy.observeResult?.(outcome);
             } catch (err) {
                 Logger.info("Policy observeResult failed", { policy: policy.name, error: String(err) });
             }
@@ -416,10 +563,10 @@ export class BrakeProxy {
         }), callback);
     }
 
-    private writePolicyError(id: JsonRpcId | undefined, result: { policyName: string; action: string; reason: string }, callback?: () => void): void {
+    private writePolicyError(id: JsonRpcId | undefined, verdict: Verdict, callback?: () => void): void {
         this.writeError(id, POLICY_ERROR,
-            `[AgentBrake] ${result.action.toUpperCase()}: ${result.reason}`,
-            { policy: result.policyName, action: result.action },
+            `[AgentBrake] ${verdict.action.toUpperCase()}: ${verdict.reason}`,
+            { policy: verdict.policyName, action: verdict.action },
             callback);
     }
 

@@ -1,6 +1,5 @@
-import { EventEmitter } from "events";
-import { PassThrough } from "stream";
-import { BrakeProxy, childEnvironment } from "../src/proxy/interceptor";
+import { childEnvironment } from "../src/proxy/interceptor";
+import { createHarness, call, settle } from "./harness";
 import { LineFramer } from "../src/proxy/framing";
 import { AllowedToolsPolicy } from "../src/policy/policies/AllowedToolsPolicy";
 import { GranularAccessPolicy } from "../src/policy/policies/GranularAccessPolicy";
@@ -12,58 +11,6 @@ import { Policy } from "../src/policy/types";
 // Silence structured logs during tests.
 beforeAll(() => { jest.spyOn(console, "error").mockImplementation(() => undefined); });
 afterAll(() => { jest.restoreAllMocks(); });
-
-const settle = () => new Promise(resolve => setTimeout(resolve, 5));
-
-interface Harness {
-    input: PassThrough;
-    child: any;
-    toServer: string[];
-    toClient: string[];
-    exit: jest.Mock;
-    sendToClientRaw: (data: string | Buffer) => void;
-}
-
-function createHarness(policies: Policy[], options: { maxMessageBytes?: number } = {}): Harness {
-    const input = new PassThrough();
-    const output = new PassThrough();
-    const child: any = new EventEmitter();
-    child.stdin = new PassThrough();
-    child.stdout = new PassThrough();
-    child.kill = jest.fn();
-
-    const toServer: string[] = [];
-    const toClient: string[] = [];
-    let serverBuf = "";
-    let clientBuf = "";
-    child.stdin.on("data", (d: Buffer) => {
-        serverBuf += d.toString();
-        const parts = serverBuf.split("\n");
-        serverBuf = parts.pop() as string;
-        toServer.push(...parts);
-    });
-    output.on("data", (d: Buffer) => {
-        clientBuf += d.toString();
-        const parts = clientBuf.split("\n");
-        clientBuf = parts.pop() as string;
-        toClient.push(...parts);
-    });
-
-    const exit = jest.fn();
-    const proxy = new BrakeProxy("fake", [], policies, {
-        input,
-        output,
-        spawnFn: () => child,
-        exit,
-        maxMessageBytes: options.maxMessageBytes
-    });
-    proxy.start();
-
-    return { input, child, toServer, toClient, exit, sendToClientRaw: d => input.write(d) };
-}
-
-const call = (id: number, name: string, args: unknown = {}) =>
-    JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
 
 const policiesUnderTest = (): Policy[] => [
     new AllowedToolsPolicy(["ok"]),

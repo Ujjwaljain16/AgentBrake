@@ -2,7 +2,6 @@ version: "3.0"
 
 agent:
   name: "enterprise-agent"
-  trust_level: "sandbox"
 
 policies:
   global:
@@ -24,6 +23,18 @@ policies:
       reset_timeout_seconds: 30
   
   security:
+    # Typed argument rules: compared after resolving "..", "~", file: URLs and numeric IPs.
+    argument_rules:
+      - type: path
+        tool: [read_file, write_file]
+        argument: path
+        within: ["/tmp", "/app/data", "/var/log"]
+      - type: url
+        tool: search_web
+        argument: url
+        allowed_schemes: [https]
+        block_private_networks: true
+
     # Safe tools that don't need approval
     allowed_tools: 
       - "search_web"
@@ -82,3 +93,14 @@ policies:
           arguments:
             to: ".*@(gmail|yahoo|hotmail|evil|external)\\.(com|net|org).*"
         action: "block"
+
+  # Secret-flow tracking: data read from protected sources may not leave through other tools.
+  flow:
+    sources:
+      - tool: read_file
+        label: secret
+        paths: { argument: path, within: ["/app/data/private"] }
+      - tool: search_web
+        label: untrusted
+    exempt_sinks: [write_file]
+    lethal_trifecta: request_approval
